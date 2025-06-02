@@ -27,63 +27,62 @@
 
         <section id="nomad-config-section" style="display:none;">
             <h2>2. Configure NOMAD Engine</h2>
-            <div class="config-item">
-                <label for="roleModelSelect">Role Model:</label>
-                <select id="roleModelSelect"></select>
+            <div class="config-grid">
+                <div class="config-item">
+                    <label for="roleModelSelect">Role Model:</label>
+                    <select id="roleModelSelect"></select>
+                </div>
+                <div class="config-item">
+                    <label for="epsilonInput">Epsilon (ε):</label>
+                    <input type="number" id="epsilonInput" value="0.05" step="0.01" min="0" max="0.99">
+                </div>
+                <div class="config-item">
+                    <label for="qualityMetricEC">Quality Metric for Exit Classes:</label>
+                    <select id="qualityMetricEC">
+                        <option value="f1-score" selected>f1-score</option>
+                        <option value="precision">precision</option>
+                        <option value="recall">recall</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label for="safetyCheckType">Chain Safety Check:</label>
+                    <select id="safetyCheckType">
+                        <option value="conservative" selected>Conservative</option>
+                        <option value="relaxed">Relaxed</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label for="adaptiveWindowInput">Adaptive Prior Update Window (events):</label>
+                    <input type="number" id="adaptiveWindowInput" value="100" step="10" min="0">
+                    <small>Set to 0 to disable adaptive priors.</small>
+                </div>
+                <div class="config-item">
+                    <label for="adaptiveBetaInput">Adaptive Prior Beta (decay rate β):</label>
+                    <input type="number" id="adaptiveBetaInput" value="0.3" step="0.05" min="0" max="1.0">
+                </div>
             </div>
-            <div class="config-item">
-                <label for="epsilonInput">Epsilon (ε):</label>
-                <input type="number" id="epsilonInput" value="0.05" step="0.01" min="0" max="0.99">
+
+            <div id="workload-phases-config">
+                <h3>Define Workload Phases</h3>
+                <div id="phasesContainer">
+                    </div>
+                <button id="addPhaseBtn" class="small-btn">Add New Phase</button>
             </div>
-            <div class="config-item">
-                <label for="qualityMetricEC">Quality Metric for Exit Classes:</label>
-                <select id="qualityMetricEC">
-                    <option value="f1-score" selected>f1-score</option>
-                    <option value="precision">precision</option>
-                    <option value="recall">recall</option>
-                </select>
-            </div>
-            <div class="config-item">
-                <label for="safetyCheckType">Chain Safety Check:</label>
-                <select id="safetyCheckType">
-                    <option value="conservative" selected>Conservative</option>
-                    <option value="relaxed">Relaxed</option>
-                </select>
-            </div>
-            <div class="config-item">
-                <label for="adaptiveWindowInput">Adaptive Prior Update Window (events):</label>
-                <input type="number" id="adaptiveWindowInput" value="100" step="10" min="0">
-                <small>Set to 0 to disable adaptive priors.</small>
-            </div>
-            <div class="config-item">
-                <label for="adaptiveBetaInput">Adaptive Prior Beta (decay rate β):</label>
-                <input type="number" id="adaptiveBetaInput" value="0.3" step="0.05" min="0" max="1.0">
-            </div>
-            <button id="runNomadBtn">Run NOMAD Live Simulation</button>
+
+            <button id="runNomadBtn" style="margin-top: 20px;">Run NOMAD Live Simulation</button>
             <div id="nomadRunStatus" class="status-message"></div>
         </section>
 
         <section id="results-section" style="display:none;">
             <h2>3. NOMAD Execution Results (Live)</h2>
-            <p><em>The adaptive prior update mechanism adjusts class probability estimates based on recent prediction frequencies using an exponential decay function. This is a simplified version of the conceptual ARIMA-based approach for distribution shift adaptation.</em></p>
+            <p><em>Adaptive priors update based on recent prediction frequencies. Phased workload (if defined) samples data to meet target distributions per phase, reporting KL divergence from previous phase's target.</em></p>
             <div id="liveStatus" class="status-message">Live updates will appear here...</div>
+            <div id="phaseShiftLog" class="status-message" style="max-height: 150px; overflow-y: auto; background-color: #f0f0f0; margin-top:10px; display:none;">KL Divergence Log:</div>
             <div class="charts-grid">
-                <div class="chart-container">
-                    <h3>Model Execution Frequency</h3>
-                    <canvas id="modelRunCountChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3>Cumulative Cost: NOMAD vs. Role Model</h3>
-                    <canvas id="cumulativeCostChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3>NOMAD vs. Role Model Accuracy (Trend)</h3>
-                    <canvas id="accuracyTrendChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3>Class Prior Distribution Over Time</h3>
-                    <canvas id="classPriorsChart"></canvas>
-                </div>
+                <div class="chart-container"><h3>Model Execution Frequency</h3><canvas id="modelRunCountChart"></canvas></div>
+                <div class="chart-container"><h3>Cumulative Cost: NOMAD vs. Role Model</h3><canvas id="cumulativeCostChart"></canvas></div>
+                <div class="chart-container"><h3>NOMAD vs. Role Model Accuracy (Trend)</h3><canvas id="accuracyTrendChart"></canvas></div>
+                <div class="chart-container"><h3>Class Prior Distribution Over Time</h3><canvas id="classPriorsChart"></canvas></div>
             </div>
             <div id="finalSummaryArea" style="display:none;">
                 <h3>Final Summary</h3>
@@ -93,10 +92,8 @@
                 </div>
                 <div id="exitClassesDisplay" class="results-box"></div>
                 <div id="confusionMatrices" class="results-box">
-                    <h4>NOMAD Confusion Matrix (Final)</h4>
-                    <div id="nomadCM" class="cm-table"></div>
-                    <h4>Role Model Confusion Matrix (Final)</h4>
-                    <div id="roleModelCM" class="cm-table"></div>
+                    <h4>NOMAD Confusion Matrix (Final)</h4><div id="nomadCM" class="cm-table"></div>
+                    <h4>Role Model Confusion Matrix (Final)</h4><div id="roleModelCM" class="cm-table"></div>
                 </div>
             </div>
         </section>
