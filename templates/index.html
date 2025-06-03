@@ -87,13 +87,19 @@
             <div id="finalSummaryArea" style="display:none;">
                 <h3>Final Summary</h3>
                 <div class="results-grid">
-                    <div id="nomadOverallMetrics" class="metrics-box"></div>
-                    <div id="roleModelComparison" class="metrics-box"></div>
+                    <div id="nomadOverallMetrics" class="metrics-box">
+                        </div>
+                    <div id="nomadStaticMetrics" class="metrics-box">
+                        </div>
+                    <div id="roleModelComparison" class="metrics-box">
+                        </div>
                 </div>
                 <div id="exitClassesDisplay" class="results-box"></div>
                 <div id="confusionMatrices" class="results-box">
-                    <h4>NOMAD Confusion Matrix (Final)</h4><div id="nomadCM" class="cm-table"></div>
-                    <h4>Role Model Confusion Matrix (Final)</h4><div id="roleModelCM" class="cm-table"></div>
+                    <h4>NOMAD (ARIMA Priors) Confusion Matrix</h4>
+                    <div id="nomadCM" class="cm-table"></div>
+                    <h4>NOMAD (Static Priors) Confusion Matrix</h4> <div id="nomadStaticCM" class="cm-table"></div> <h4>Role Model Confusion Matrix</h4>
+                    <div id="roleModelCM" class="cm-table"></div>
                 </div>
             </div>
         </section>

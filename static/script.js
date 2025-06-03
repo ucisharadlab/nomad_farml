@@ -23,10 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const liveStatusDiv = document.getElementById('liveStatus');
     const phaseShiftLogDiv = document.getElementById('phaseShiftLog'); 
     const finalSummaryArea = document.getElementById('finalSummaryArea');
-    const nomadOverallMetricsDiv = document.getElementById('nomadOverallMetrics');
+    const nomadOverallMetricsDiv = document.getElementById('nomadOverallMetrics'); // Will show ARIMA results
+    const nomadStaticMetricsDiv = document.getElementById('nomadStaticMetrics'); // New div for static results
     const roleModelComparisonDiv = document.getElementById('roleModelComparison');
     const exitClassesDiv = document.getElementById('exitClassesDisplay');
-    const nomadCMDiv = document.getElementById('nomadCM');
+    const nomadCMDiv = document.getElementById('nomadCM'); // Will show ARIMA CM
+    const nomadStaticCMDiv = document.getElementById('nomadStaticCM'); // New div for static CM
     const roleModelCMDiv = document.getElementById('roleModelCM');
 
     let modelRunCountChart, cumulativeCostChart, accuracyTrendChart, classPriorsChart;
@@ -37,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let overallDataDistribution = {}; 
     let roleModelCostPerEvent = 0;
     let currentClassPriorColors = {};
-    let phaseCounter = 0; // For unique IDs for phase elements
+    let phaseCounter = 0;
 
     function setStatus(element, message, isError = false) {
         element.textContent = message;
@@ -50,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function getDistinctColors(count) {
         const colors = [];
         for (let i = 0; i < count; i++) {
-            const hue = (i * (360 / (count * 1.2 + 1))) % 360; 
+            const hue = (i * (360 / (Math.max(count,1) * 1.2 + 1))) % 360; 
             colors.push(`hsl(${hue}, 70%, 50%)`);
         }
         return colors;
@@ -58,11 +60,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function createPhaseElement(phaseIndex, initialPhaseData = null) {
         phaseCounter++;
-        const phaseId = `phase-ui-${phaseCounter}`; // More unique ID for HTML elements
+        const phaseId = `phase-ui-${phaseCounter}`;
         const phaseDiv = document.createElement('div');
         phaseDiv.classList.add('phase-block');
         phaseDiv.setAttribute('id', phaseId);
-        phaseDiv.setAttribute('data-internal-phase-index', phaseIndex); // Keep track of logical index
+        phaseDiv.setAttribute('data-internal-phase-index', phaseIndex);
 
         let phaseHtml = `<h4>Phase ${phaseIndex + 1}</h4>`;
         phaseHtml += `<div class="phase-config-item">
@@ -101,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
             classNamesOrderedForCM.forEach(className => {
                 const probInput = phaseDiv.querySelector(`.phase-class-prob[data-class-name="${className}"]`);
                 if (probInput) {
-                    probInput.value = (overallDataDistribution[className] || 0).toFixed(3);
+                    probInput.value = (overallDataDistribution[className] || (1/numClasses) ).toFixed(3);
                 }
             });
         });
@@ -117,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updatePhaseIndices() {
         const phaseBlocks = phasesContainer.querySelectorAll('.phase-block');
         phaseBlocks.forEach((block, index) => {
-            block.setAttribute('data-internal-phase-index', index); // Update logical index
+            block.setAttribute('data-internal-phase-index', index);
             block.querySelector('h4').textContent = `Phase ${index + 1}`;
         });
     }
@@ -126,7 +128,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const phaseIndex = phasesContainer.children.length;
         const newPhaseElement = createPhaseElement(phaseIndex, initialData);
         phasesContainer.appendChild(newPhaseElement);
-        // updatePhaseIndices(); // No need to call here as createPhaseElement uses phaseIndex which is current children.length
     }
 
     addPhaseBtn.addEventListener('click', () => addPhaseBlock());
@@ -148,14 +149,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const durationInput = block.querySelector('.phase-duration');
             const duration = parseInt(durationInput.value);
-            console.log(`JS getWorkloadPhasesFromUI: Phase ${index + 1}, raw duration input: '${durationInput.value}', parsed: ${duration}`);
             if (isNaN(duration) || duration <= 0 || !Number.isInteger(duration)) {
                 setStatus(nomadRunStatusDiv, `Phase ${index + 1}: Duration must be a positive integer. Found: '${durationInput.value}'`, true);
-                durationInput.style.borderColor = 'red';
-                isValid = false; return;
-            } else {
-                 durationInput.style.borderColor = '';
-            }
+                durationInput.style.borderColor = 'red'; isValid = false; return;
+            } else { durationInput.style.borderColor = ''; }
 
             const target_distribution = {};
             let probSum = 0;
@@ -166,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!isValid) return;
                 const className = input.getAttribute('data-class-name');
                 const prob = parseFloat(input.value);
-                console.log(`JS getWorkloadPhasesFromUI: Phase ${index + 1}, Class '${className}', raw prob input: '${input.value}', parsed: ${prob}`);
 
                 if(!classNamesInData.has(className)) { 
                     setStatus(nomadRunStatusDiv, `Phase ${index + 1}: Unknown class name '${className}' in UI. Available: ${classNamesOrderedForCM.join(', ')}`, true);
@@ -174,25 +170,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (isNaN(prob) || prob < 0 || prob > 1) {
                     setStatus(nomadRunStatusDiv, `Phase ${index + 1}: Probability for ${className} must be between 0 and 1. Found: '${input.value}'`, true);
-                    input.style.borderColor = 'red';
-                    isValid = false; return;
-                } else {
-                    input.style.borderColor = '';
-                }
+                    input.style.borderColor = 'red'; isValid = false; return;
+                } else { input.style.borderColor = ''; }
                 target_distribution[className] = prob;
                 probSum += prob;
             });
-
             if (!isValid) return;
 
-            console.log(`JS getWorkloadPhasesFromUI: Phase ${index + 1}, calculated probSum: ${probSum}`);
             if (Math.abs(probSum - 1.0) > 0.01 && Object.keys(target_distribution).length > 0) {
-                setStatus(nomadRunStatusDiv, `Phase ${index + 1}: Probabilities must sum to 1.0 (current sum for specified classes: ${probSum.toFixed(3)}).`, true);
-                probInputs.forEach(input => input.style.borderColor = 'red');
-                isValid = false; return;
-            } else {
-                 probInputs.forEach(input => input.style.borderColor = '');
-            }
+                setStatus(nomadRunStatusDiv, `Phase ${index + 1}: Probabilities must sum to 1.0 (current sum: ${probSum.toFixed(3)}).`, true);
+                probInputs.forEach(input => input.style.borderColor = 'red'); isValid = false; return;
+            } else { probInputs.forEach(input => input.style.borderColor = '');}
             phases.push({ duration, target_distribution });
         });
         console.log("JS getWorkloadPhasesFromUI: Final phases collected:", JSON.stringify(phases), "Is Valid:", isValid);
@@ -202,36 +190,31 @@ document.addEventListener('DOMContentLoaded', () => {
     function initializePhaseUI() {
         console.log("JS initializePhaseUI: Setting up phase UI.");
         phasesContainer.innerHTML = ''; 
-        phaseCounter = 0; // Reset counter for unique element IDs
+        phaseCounter = 0; 
         let defaultPhaseData = null;
         if (classNamesOrderedForCM.length > 0) {
-            defaultPhaseData = {
-                duration: 100, 
-                target_distribution: { ...overallDataDistribution } 
-            };
+            defaultPhaseData = { duration: 100, target_distribution: { ...overallDataDistribution } };
             classNamesOrderedForCM.forEach(cn => {
                 if (defaultPhaseData.target_distribution[cn] === undefined) {
-                    defaultPhaseData.target_distribution[cn] = 0.0;
+                    defaultPhaseData.target_distribution[cn] = (1 / Math.max(1, classNamesOrderedForCM.length));
                 }
             });
             console.log("JS initializePhaseUI: Created default phase data:", JSON.stringify(defaultPhaseData));
-        } else {
-            console.log("JS initializePhaseUI: No class names available to create a default phase.");
-        }
+        } else { console.log("JS initializePhaseUI: No class names available to create a default phase."); }
         addPhaseBlock(defaultPhaseData); 
-        if(classNamesOrderedForCM.length > 1) { // Add a second contrasting phase if possible
+
+        if(classNamesOrderedForCM.length > 1) {
             let secondPhaseDist = {};
-            const firstClass = classNamesOrderedForCM[0];
-            const secondClass = classNamesOrderedForCM[1];
-            secondPhaseDist[firstClass] = 0.2;
-            secondPhaseDist[secondClass] = 0.8;
-            // Distribute remaining probability (0) among other classes if they exist
-            for(let i=2; i<classNamesOrderedForCM.length; i++) {
-                secondPhaseDist[classNamesOrderedForCM[i]] = 0.0;
-            }
+            const numClasses = classNamesOrderedForCM.length;
+            classNamesOrderedForCM.forEach((name, idx) => { // Create a contrasting distribution
+                secondPhaseDist[name] = (idx === numClasses -1) ? 0.7 : ( (numClasses > 1) ? (0.3 / Math.max(1, numClasses - 1)) : 0.0);
+            });
+             // Normalize secondPhaseDist
+            let sum2 = Object.values(secondPhaseDist).reduce((s,p) => s+p, 0);
+            if (sum2 > 0 && Math.abs(sum2-1.0) > 1e-3) for (let k in secondPhaseDist) secondPhaseDist[k] /= sum2;
+            
             addPhaseBlock({duration: 100, target_distribution: secondPhaseDist});
         }
-
     }
 
     uploadBtn.addEventListener('click', async () => {
@@ -255,7 +238,6 @@ document.addEventListener('DOMContentLoaded', () => {
             overallDataDistribution = data.initial_priors_str_keys || {};
             console.log("JS uploadBtn: Stored overallDataDistribution:", JSON.stringify(overallDataDistribution));
             console.log("JS uploadBtn: Stored classNamesOrderedForCM:", classNamesOrderedForCM);
-
 
             const classColors = getDistinctColors(classNamesOrderedForCM.length);
             currentClassPriorColors = {};
@@ -283,12 +265,8 @@ document.addEventListener('DOMContentLoaded', () => {
     runNomadBtn.addEventListener('click', () => {
         console.log("JS runNomadBtn: Clicked.");
         const workloadPhases = getWorkloadPhasesFromUI(); 
-        if (workloadPhases === null) { 
-            console.log("JS runNomadBtn: Workload phases validation failed.");
-            return; 
-        }
+        if (workloadPhases === null) { console.log("JS runNomadBtn: Workload phases validation failed."); return; }
         console.log("JS runNomadBtn: Workload phases for simulation:", JSON.stringify(workloadPhases));
-
 
         const nomadConfig = {
             role_model_name: roleModelSelect.value, epsilon: epsilonInput.value,
@@ -297,7 +275,6 @@ document.addEventListener('DOMContentLoaded', () => {
             workload_phases: JSON.stringify(workloadPhases) 
         };
         console.log("JS runNomadBtn: Nomad config for API call:", nomadConfig);
-
 
         if (!nomadConfig.role_model_name) { setStatus(nomadRunStatusDiv, 'Please select a Role Model.', true); return; }
         if (parseInt(nomadConfig.adaptive_update_window) < 0) { setStatus(nomadRunStatusDiv, 'Adaptive Update Window cannot be negative.', true); return; }
@@ -313,24 +290,17 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("JS runNomadBtn: Re-initializing live charts.");
         initializeLiveCharts(candidateModelNamesForCharts, classNamesOrderedForCM, overallDataDistribution); 
 
-        if (eventSource) {
-            console.log("JS runNomadBtn: Closing existing EventSource.");
-            eventSource.close();
-        }
+        if (eventSource) { console.log("JS runNomadBtn: Closing existing EventSource."); eventSource.close(); }
         const queryParams = new URLSearchParams(nomadConfig).toString();
         console.log("JS runNomadBtn: Connecting to EventSource with params:", queryParams);
         eventSource = new EventSource(`/api/nomad_event_stream?${queryParams}`);
         setStatus(nomadRunStatusDiv, 'Connecting to NOMAD simulation stream...');
 
-        eventSource.onopen = () => { 
-            console.log("JS EventSource: Connection opened.");
-            setStatus(nomadRunStatusDiv, 'Stream connected. Receiving live updates...'); 
-        };
+        eventSource.onopen = () => { console.log("JS EventSource: Connection opened."); setStatus(nomadRunStatusDiv, 'Stream connected. Receiving live updates...'); };
 
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);
             console.log("JS EventSource: Message received:", data);
-
 
             if (data.type === "error") { 
                 console.error("JS EventSource: Error message received:", data.message);
@@ -356,10 +326,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (accuracyTrendChart && data.role_model_static_accuracy !== undefined) {
                     accuracyTrendChart.roleModelStaticAccuracy = data.role_model_static_accuracy;
-                    accuracyTrendChart.data.datasets[1].data = []; 
-                    if (accuracyTrendChart.data.labels.length > 0) { 
-                        accuracyTrendChart.data.datasets[1].data = accuracyTrendChart.data.labels.map(() => accuracyTrendChart.roleModelStaticAccuracy);
-                    }
+                    const rmAccDataset = accuracyTrendChart.data.datasets[2]; // Index 2 for Role Model Accuracy
+                    if (rmAccDataset) rmAccDataset.data = accuracyTrendChart.data.labels.map(() => accuracyTrendChart.roleModelStaticAccuracy);
                     accuracyTrendChart.update('none');
                 }
             } else if (data.type === "batch_update") { 
@@ -367,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setStatus(liveStatusDiv, `Processed up to event ${data.last_event_in_batch} / ${totalEventsToProcess}...`);
                 updateLiveChartsFromBatch(data); 
             } else if (data.type === "prior_update") { 
-                console.log("JS EventSource: Prior_update data received:", data);
+                console.log("JS EventSource: Prior_update data received (ARIMA priors):", data);
                 if (classPriorsChart && data.updated_priors) {
                     const eventNum = data.event_number;
                     let pointIndex = classPriorsChart.data.labels.indexOf(eventNum);
@@ -387,13 +355,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     classPriorsChart.update('none');
                 }
-            } else if (data.type === "phase_shift") {
+            } else if (data.type === "phase_shift") { 
                 console.log("JS EventSource: Phase_shift data received:", data);
                 phaseShiftLogDiv.style.display = 'block';
                 const klDiv = data.kl_divergence_from_previous !== -1.0 ? data.kl_divergence_from_previous.toFixed(4) : "N/A (first phase or error)";
                 let logEntry = `Phase ${data.phase_index + 1} (Duration: ${data.duration}):<br>`;
                 logEntry += `&nbsp;&nbsp;Target Dist: ${JSON.stringify(data.target_distribution)}<br>`;
-                if (data.phase_index === 0) { logEntry += `&nbsp;&nbsp;Prev Dist: Initial Priors (from training data)<br>`;
+                if (data.phase_index === 0 && data.previous_target_distribution) { logEntry += `&nbsp;&nbsp;Prev Dist (Initial Priors): ${JSON.stringify(data.previous_target_distribution)}<br>`;
                 } else if (data.previous_target_distribution) { logEntry += `&nbsp;&nbsp;Prev Target Dist: ${JSON.stringify(data.previous_target_distribution)}<br>`; }
                 logEntry += `&nbsp;&nbsp;KL Divergence (Q_current || P_previous): ${klDiv}<br><hr>`;
                 phaseShiftLogDiv.innerHTML += logEntry; phaseShiftLogDiv.scrollTop = phaseShiftLogDiv.scrollHeight;
@@ -420,8 +388,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const commonChartOptions = { responsive: true, maintainAspectRatio: false, animation: { duration: 0 } };
         
         modelRunCountChart = new Chart(document.getElementById('modelRunCountChart').getContext('2d'), { type: 'bar', data: { labels: modelNames, datasets: [{ label: 'Times Model Executed', data: Array(modelNames.length).fill(0), backgroundColor: 'rgba(54, 162, 235, 0.7)' }] }, options: { ...commonChartOptions, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-        cumulativeCostChart = new Chart(document.getElementById('cumulativeCostChart').getContext('2d'), { type: 'line', data: { labels: [], datasets: [ { label: 'NOMAD Cumulative Cost', data: [], borderColor: 'rgba(255, 99, 132, 1)', backgroundColor: 'rgba(255, 99, 132, 0.1)', fill: true, tension: 0.1 }, { label: 'Role Model Cumulative Cost', data: [], borderColor: 'rgba(54, 162, 235, 1)', backgroundColor: 'rgba(54, 162, 235, 0.1)', borderDash: [5, 5], fill: true, tension: 0.1 } ] }, options: { ...commonChartOptions, scales: { x: { type:'linear', title: { display: true, text: 'Event #' } }, y: { beginAtZero: true, title: { display: true, text: 'Cumulative Cost' } } } } });
-        accuracyTrendChart = new Chart(document.getElementById('accuracyTrendChart').getContext('2d'), { type: 'line', data: { labels: [], datasets: [ { label: 'NOMAD Accuracy', data: [], borderColor: 'rgba(75, 192, 192, 1)', backgroundColor: 'rgba(75, 192, 192, 0.1)', fill:true, tension: 0.1 }, { label: 'Role Model Accuracy (Static)', data: [], borderColor: 'rgba(255, 206, 86, 1)', borderDash: [5, 5], fill: false, tension: 0.1 } ] }, options: { ...commonChartOptions, scales: { x: { type:'linear', title: { display: true, text: 'Event #' } }, y: { beginAtZero: false, min:0, max: 1.0, title: { display: true, text: 'Accuracy' } } } } });
+        
+        cumulativeCostChart = new Chart(document.getElementById('cumulativeCostChart').getContext('2d'), {
+            type: 'line',
+            data: { 
+                labels: [], 
+                datasets: [
+                    { label: 'NOMAD (ARIMA Priors) Cost', data: [], borderColor: 'rgba(255, 99, 132, 1)', backgroundColor: 'rgba(255, 99, 132, 0.1)', fill: true, tension: 0.1, yAxisID: 'yCost'},
+                    { label: 'NOMAD (Static Priors) Cost', data: [], borderColor: 'rgba(255, 159, 64, 1)', backgroundColor: 'rgba(255, 159, 64, 0.1)', fill: true, tension: 0.1, borderDash: [3, 3], yAxisID: 'yCost'},
+                    { label: 'Role Model Cost', data: [], borderColor: 'rgba(54, 162, 235, 1)', backgroundColor: 'rgba(54, 162, 235, 0.1)', borderDash: [5, 5], fill: true, tension: 0.1, yAxisID: 'yCost'}
+                ] 
+            },
+            options: { ...commonChartOptions, scales: { x: { type:'linear', title: { display: true, text: 'Event #' } }, yCost: { type: 'linear', position: 'left', beginAtZero: true, title: { display: true, text: 'Cumulative Cost' } } } }
+        });
+
+        accuracyTrendChart = new Chart(document.getElementById('accuracyTrendChart').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'NOMAD (ARIMA Priors) Accuracy', data: [], borderColor: 'rgba(75, 192, 192, 1)', backgroundColor: 'rgba(75, 192, 192, 0.1)', fill:true, tension: 0.1, yAxisID: 'yAccuracy' },
+                    { label: 'NOMAD (Static Priors) Accuracy', data: [], borderColor: 'rgba(153, 102, 255, 1)', backgroundColor: 'rgba(153, 102, 255, 0.1)', fill:true, tension: 0.1, borderDash: [3, 3], yAxisID: 'yAccuracy'},
+                    { label: 'Role Model Accuracy (Static)', data: [], borderColor: 'rgba(255, 206, 86, 1)', borderDash: [5, 5], fill: false, tension: 0.1, yAxisID: 'yAccuracy' }
+                ]
+            },
+            options: { ...commonChartOptions, scales: { x: { type:'linear', title: { display: true, text: 'Event #' } }, yAccuracy: { type: 'linear', position: 'left', min:0, max: 1.0, title: { display: true, text: 'Accuracy' } } } }
+        });
         
         const priorDatasets = classNames.map(className => ({ 
             label: className, 
@@ -429,20 +421,18 @@ document.addEventListener('DOMContentLoaded', () => {
             borderColor: currentClassPriorColors[className] || getDistinctColors(1)[0], 
             fill: false, tension: 0.1 
         }));
-        
         classPriorsChart = new Chart(document.getElementById('classPriorsChart').getContext('2d'), { 
             type: 'line', 
             data: { 
                 labels: (initialPriorsForChart && Object.keys(initialPriorsForChart).length > 0 && classNames.some(cn => initialPriorsForChart[cn] !== undefined)) ? [0] : [], 
                 datasets: priorDatasets 
             }, 
-            options: { ...commonChartOptions, scales: { x: { type:'linear', title: { display: true, text: 'Event #' } }, y: { beginAtZero: true, min: 0, max: 1.0, title: { display: true, text: 'Prior Probability' } } }, 
+            options: { ...commonChartOptions, scales: { x: { type:'linear', title: { display: true, text: 'Event #' } }, y: { beginAtZero: true, min: 0, max: 1.0, title: { display: true, text: 'ARIMA Prior Probability' } } }, 
                        plugins: { legend: { position: 'top', labels:{ boxWidth:15, padding:10 } } } } 
         });
         console.log("JS initializeLiveCharts: Charts initialized.");
     }
 
-    // Using the simplified updateLineChart from previous discussion
     function updateLineChart(chart, datasetIndex, yValue, xValue, isStaticLine = false, staticValue = null) {
         if (!chart) {
             console.error("JS updateLineChart: Chart object is null/undefined. Chart ID if available:", chart ? chart.canvas.id : "Unknown");
@@ -458,45 +448,36 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        console.log("JS updateLineChart: Before update - Labels:", JSON.stringify(currentXLabels), `Target Dataset (${targetDataset.label}) Data:`, JSON.stringify(targetDataset.data));
+        // console.log("JS updateLineChart: Before update - Labels:", JSON.stringify(currentXLabels), `Target Dataset (${targetDataset.label}) Data:`, JSON.stringify(targetDataset.data));
 
         let pointIndex = currentXLabels.indexOf(xValue);
 
-        if (pointIndex === -1) { // New xValue
+        if (pointIndex === -1) { 
             currentXLabels.push(xValue);
-            // Ensure labels are sorted if new xValue isn't the max (though for live stream it should be)
-            currentXLabels.sort((a, b) => a - b);
+            currentXLabels.sort((a, b) => a - b); 
             pointIndex = currentXLabels.indexOf(xValue);
 
-            // New xValue means all datasets need this point.
-            // We insert a placeholder, which will be overwritten for targetDataset.
-            // For others, it's usually the previous value carried forward.
             chart.data.datasets.forEach(ds => {
-                const prevValue = (pointIndex > 0 && ds.data[pointIndex - 1] !== undefined) ? ds.data[pointIndex - 1] : (ds.data.length > 0 ? ds.data[0] : 0) ;
-                ds.data.splice(pointIndex, 0, prevValue); // Insert value at new sorted position
+                const prevValue = (pointIndex > 0 && ds.data[pointIndex - 1] !== undefined) ? ds.data[pointIndex - 1] : (ds.data.length > 0 && ds.data[0] !== undefined ? ds.data[0] : 0) ;
+                ds.data.splice(pointIndex, 0, prevValue); 
             });
         }
         
-        // Set the yValue for the targetDataset at the correct pointIndex
         targetDataset.data[pointIndex] = yValue;
 
-        // For static lines, ensure all its points reflect the static value for the current labels
         if (isStaticLine && staticValue !== null) {
             chart.data.datasets[datasetIndex].data = currentXLabels.map(() => staticValue);
         }
         
-        console.log("JS updateLineChart: After update - Labels:", JSON.stringify(currentXLabels), `Target Dataset (${targetDataset.label}) Data:`, JSON.stringify(targetDataset.data));
+        // console.log("JS updateLineChart: After update - Labels:", JSON.stringify(currentXLabels), `Target Dataset (${targetDataset.label}) Data:`, JSON.stringify(targetDataset.data));
         chart.update('none'); 
     }
 
-
     function updateLiveChartsFromBatch(batchData) { 
-        // console.log("JS updateLiveChartsFromBatch: Received data ->", JSON.stringify(batchData)); // Logged by caller now
-
         if (!batchData || batchData.type !== "batch_update") return;
         const currentEventIndexForXAxis = batchData.last_event_in_batch;
 
-        if (modelRunCountChart && batchData.model_run_counts_snapshot) {
+        if (modelRunCountChart && batchData.model_run_counts_snapshot) { // Assuming this refers to ARIMA path counts or combined
             const counts = batchData.model_run_counts_snapshot;
             modelRunCountChart.data.labels.forEach((label, index) => {
                 modelRunCountChart.data.datasets[0].data[index] = counts[label] || 0;
@@ -505,18 +486,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         if (cumulativeCostChart) {
-            console.log(`JS updateLiveChartsFromBatch: Updating cumulativeCostChart. X=${currentEventIndexForXAxis}, NOMAD Y=${batchData.cumulative_cost}`);
-            updateLineChart(cumulativeCostChart, 0, batchData.cumulative_cost, currentEventIndexForXAxis);
-            if (roleModelCostPerEvent >= 0) {
-                updateLineChart(cumulativeCostChart, 1, roleModelCostPerEvent * currentEventIndexForXAxis, currentEventIndexForXAxis);
+            console.log(`JS updateLiveChartsFromBatch: Updating cumulativeCostChart. X=${currentEventIndexForXAxis}, ARIMA Cost Y=${batchData.nomad_arima_cumulative_cost}, Static Cost Y=${batchData.nomad_static_cumulative_cost}`);
+            updateLineChart(cumulativeCostChart, 0, batchData.nomad_arima_cumulative_cost, currentEventIndexForXAxis); // ARIMA path
+            updateLineChart(cumulativeCostChart, 1, batchData.nomad_static_cumulative_cost, currentEventIndexForXAxis); // Static path
+            if (roleModelCostPerEvent >= 0) { // Role model line is dataset index 2 now
+                updateLineChart(cumulativeCostChart, 2, roleModelCostPerEvent * currentEventIndexForXAxis, currentEventIndexForXAxis);
             }
         }
 
         if (accuracyTrendChart) {
-            console.log(`JS updateLiveChartsFromBatch: Updating accuracyTrendChart. X=${currentEventIndexForXAxis}, NOMAD Y=${batchData.live_nomad_accuracy}`);
-            updateLineChart(accuracyTrendChart, 0, batchData.live_nomad_accuracy, currentEventIndexForXAxis);
-            if (accuracyTrendChart.roleModelStaticAccuracy !== undefined) {
-                 updateLineChart(accuracyTrendChart, 1, accuracyTrendChart.roleModelStaticAccuracy, currentEventIndexForXAxis, true, accuracyTrendChart.roleModelStaticAccuracy);
+            console.log(`JS updateLiveChartsFromBatch: Updating accuracyTrendChart. X=${currentEventIndexForXAxis}, ARIMA Acc Y=${batchData.nomad_arima_live_accuracy}, Static Acc Y=${batchData.nomad_static_live_accuracy}`);
+            updateLineChart(accuracyTrendChart, 0, batchData.nomad_arima_live_accuracy, currentEventIndexForXAxis); // ARIMA path
+            updateLineChart(accuracyTrendChart, 1, batchData.nomad_static_live_accuracy, currentEventIndexForXAxis); // Static path
+            if (accuracyTrendChart.roleModelStaticAccuracy !== undefined) { // Role model line is dataset index 2 now
+                 updateLineChart(accuracyTrendChart, 2, accuracyTrendChart.roleModelStaticAccuracy, currentEventIndexForXAxis, true, accuracyTrendChart.roleModelStaticAccuracy);
             }
         }
     }
@@ -531,41 +514,106 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function displayFinalSummary(summaryData) { 
         console.log("JS displayFinalSummary: Received summary data:", summaryData);
-        if (summaryData.nomad_overall_metrics) {
-            const nom = summaryData.nomad_overall_metrics;
-            nomadOverallMetricsDiv.innerHTML = `<h4>NOMAD Strategy Performance (Final)</h4> <p><strong>Overall Accuracy:</strong> ${nom.accuracy.toFixed(4)}</p> <p><strong>Weighted Avg F1-Score:</strong> ${nom.avg_metrics['f1-score'] ? nom.avg_metrics['f1-score'].toFixed(4) : 'N/A'}</p> <p><strong>Average Cost per Event:</strong> ${nom.average_cost.toFixed(4)}</p>`;
-            renderConfusionMatrix(nomadCMDiv, nom.cm, classNamesOrderedForCM);
+        
+        let summaryHtml = '';
+        if (summaryData.nomad_arima_overall_metrics) {
+            const arima_metrics = summaryData.nomad_arima_overall_metrics;
+            summaryHtml += `<h4>NOMAD (ARIMA Priors) Performance</h4>
+                             <p><strong>Overall Accuracy:</strong> ${arima_metrics.accuracy.toFixed(4)}</p>
+                             <p><strong>W. Avg F1:</strong> ${arima_metrics.avg_metrics['f1-score'] ? arima_metrics.avg_metrics['f1-score'].toFixed(4) : 'N/A'}</p>
+                             <p><strong>Avg Cost:</strong> ${arima_metrics.average_cost.toFixed(4)}</p>`;
+            renderConfusionMatrix(nomadCMDiv, arima_metrics.cm, classNamesOrderedForCM);
+        } else {
+            summaryHtml += `<h4>NOMAD (ARIMA Priors) Performance</h4><p>Data not available.</p>`;
+            nomadCMDiv.innerHTML = '';
         }
+        nomadOverallMetricsDiv.innerHTML = summaryHtml;
+
+
+        // Display Static NOMAD metrics - requires a new div or clear labeling
+        // For now, adding to a hypothetical 'nomadStaticMetricsDiv'
+        // You'll need to add `<div id="nomadStaticMetrics" class="metrics-box"></div>` and
+        // `<div id="nomadStaticCM" class="cm-table"></div>` to your index.html
+        const staticMetricsDisplayDiv = document.getElementById('nomadStaticMetrics') || nomadOverallMetricsDiv; // Fallback
+        const staticCMDisplayDiv = document.getElementById('nomadStaticCM') || document.createElement('div'); // Fallback
+        if (staticMetricsDisplayDiv === nomadOverallMetricsDiv && summaryData.nomad_static_overall_metrics) staticMetricsDisplayDiv.innerHTML += '<hr>';
+
+
+        if (summaryData.nomad_static_overall_metrics) {
+            const static_metrics = summaryData.nomad_static_overall_metrics;
+            let staticHtml = `<h4>NOMAD (Static Priors) Performance</h4>
+                             <p><strong>Overall Accuracy:</strong> ${static_metrics.accuracy.toFixed(4)}</p>
+                             <p><strong>W. Avg F1:</strong> ${static_metrics.avg_metrics['f1-score'] ? static_metrics.avg_metrics['f1-score'].toFixed(4) : 'N/A'}</p>
+                             <p><strong>Avg Cost:</strong> ${static_metrics.average_cost.toFixed(4)}</p>`;
+            if (staticMetricsDisplayDiv === nomadOverallMetricsDiv) nomadOverallMetricsDiv.innerHTML += staticHtml;
+            else staticMetricsDisplayDiv.innerHTML = staticHtml;
+            renderConfusionMatrix(staticCMDisplayDiv, static_metrics.cm, classNamesOrderedForCM);
+            if (staticCMDisplayDiv !== nomadStaticCMDiv) nomadCMDiv.parentElement.appendChild(staticCMDisplayDiv); // Append if created dynamically
+
+        } else if (staticMetricsDisplayDiv !== nomadOverallMetricsDiv) {
+            staticMetricsDisplayDiv.innerHTML = `<h4>NOMAD (Static Priors) Performance</h4><p>Data not available.</p>`;
+        }
+
+
         if (summaryData.role_model_performance) {
             const role = summaryData.role_model_performance;
-            roleModelComparisonDiv.innerHTML = `<h4>Role Model (${role.name}) Performance (Final)</h4> <p><strong>Overall Accuracy:</strong> ${role.accuracy.toFixed(4)}</p> <p><strong>Weighted Avg F1-Score:</strong> ${role.avg_metrics['f1-score'] ? role.avg_metrics['f1-score'].toFixed(4) : 'N/A'}</p> <p><strong>Cost:</strong> ${role.cost.toFixed(2)}</p>`; 
+            roleModelComparisonDiv.innerHTML = `<h4>Role Model (${role.name}) Performance</h4> <p><strong>Overall Accuracy:</strong> ${role.accuracy.toFixed(4)}</p> <p><strong>W. Avg F1:</strong> ${role.avg_metrics['f1-score'] ? role.avg_metrics['f1-score'].toFixed(4) : 'N/A'}</p> <p><strong>Cost:</strong> ${role.cost.toFixed(2)}</p>`; 
             renderConfusionMatrix(roleModelCMDiv, role.cm, classNamesOrderedForCM);
         }
-        if (summaryData.final_model_run_counts && modelRunCountChart) {
-             const counts = summaryData.final_model_run_counts;
+
+        // Model run counts - display ARIMA path counts for now, or you can add static path counts too
+        if (summaryData.final_model_run_counts_arima && modelRunCountChart) {
+             const counts = summaryData.final_model_run_counts_arima;
             modelRunCountChart.data.labels.forEach((label, index) => { modelRunCountChart.data.datasets[0].data[index] = counts[label] || 0; });
             modelRunCountChart.update(); 
         }
+        
         const finalEventNum = totalEventsToProcess;
-        function finalizeChart(chart, finalX, dataset0FinalYProvider, dataset1FinalYProvider, isDataset1Static = false) {
+        function finalizeChart(chart, finalX, datasetProviders, isStaticFlags) {
             if (!chart || finalX <= 0) return;
             let currentXLabels = chart.data.labels;
             if (!currentXLabels.includes(finalX)) { currentXLabels.push(finalX); currentXLabels.sort((a,b) => a-b); }
             const finalIndex = currentXLabels.indexOf(finalX);
+
             chart.data.datasets.forEach((ds, idx) => {
+                // Pad data array
                 for(let i = 0; i < currentXLabels.length; i++) { if(ds.data[i] === undefined) { ds.data[i] = (i > 0 && ds.data[i-1] !== undefined) ? ds.data[i-1] : 0; } }
-                if (idx === 0 && dataset0FinalYProvider !== undefined) { ds.data[finalIndex] = (typeof dataset0FinalYProvider === 'function') ? dataset0FinalYProvider(finalX) : dataset0FinalYProvider; }
-                if (idx === 1 && dataset1FinalYProvider !== undefined) { const val = typeof dataset1FinalYProvider === 'function' ? dataset1FinalYProvider(finalX) : dataset1FinalYProvider; if (isDataset1Static) { ds.data = chart.data.labels.map(() => val); } else { ds.data[finalIndex] = val; } }
+                
+                const provider = datasetProviders[idx];
+                const isStatic = isStaticFlags[idx];
+                if (provider !== undefined) {
+                    const val = typeof provider === 'function' ? provider(finalX) : provider;
+                    if (isStatic) { ds.data = chart.data.labels.map(() => val); } 
+                    else { ds.data[finalIndex] = val; }
+                }
             });
             chart.update();
         }
-        if (cumulativeCostChart && summaryData.nomad_overall_metrics) { finalizeChart(cumulativeCostChart, finalEventNum, summaryData.nomad_overall_metrics.average_cost * finalEventNum, (x) => roleModelCostPerEvent * x); }
-        if (accuracyTrendChart && summaryData.nomad_overall_metrics) { finalizeChart(accuracyTrendChart, finalEventNum, summaryData.nomad_overall_metrics.accuracy, accuracyTrendChart.roleModelStaticAccuracy, true); }
-        if (classPriorsChart) { if (!classPriorsChart.data.labels.includes(finalEventNum) && finalEventNum > 0) { classPriorsChart.data.labels.push(finalEventNum); classPriorsChart.data.labels.sort((a,b)=>a-b); } classPriorsChart.data.datasets.forEach(dataset => { for(let i = 0; i < classPriorsChart.data.labels.length; i++) { if(dataset.data[i] === undefined) { dataset.data[i] = (i > 0 && dataset.data[i-1] !== undefined) ? dataset.data[i-1] : 0; } } }); classPriorsChart.update(); }
+
+        if (cumulativeCostChart && summaryData.nomad_arima_overall_metrics && summaryData.nomad_static_overall_metrics) {
+            finalizeChart(cumulativeCostChart, finalEventNum, 
+                [summaryData.nomad_arima_overall_metrics.average_cost * finalEventNum, 
+                 summaryData.nomad_static_overall_metrics.average_cost * finalEventNum,
+                 (x) => roleModelCostPerEvent * x], 
+                [false, false, false]);
+        }
+        if (accuracyTrendChart && summaryData.nomad_arima_overall_metrics && summaryData.nomad_static_overall_metrics) {
+            finalizeChart(accuracyTrendChart, finalEventNum, 
+                [summaryData.nomad_arima_overall_metrics.accuracy,
+                 summaryData.nomad_static_overall_metrics.accuracy,
+                 accuracyTrendChart.roleModelStaticAccuracy], 
+                [false, false, true]);
+        }
+        if (classPriorsChart) { 
+            if (!classPriorsChart.data.labels.includes(finalEventNum) && finalEventNum > 0) { classPriorsChart.data.labels.push(finalEventNum); classPriorsChart.data.labels.sort((a,b)=>a-b); } 
+            classPriorsChart.data.datasets.forEach(dataset => { for(let i = 0; i < classPriorsChart.data.labels.length; i++) { if(dataset.data[i] === undefined) { dataset.data[i] = (i > 0 && dataset.data[i-1] !== undefined) ? dataset.data[i-1] : 0; } } }); 
+            classPriorsChart.update(); 
+        }
         console.log("JS displayFinalSummary: Summary displayed and charts finalized.");
     }
     
     function renderConfusionMatrix(element, cmData, labels) { 
+        if (!element) { console.error("Render CM: Target element not found"); return; }
         if (!cmData || cmData.length === 0 || !labels || labels.length === 0) { element.innerHTML = "<p>CM data/labels not available.</p>"; return; }
         if (!Array.isArray(cmData[0]) || cmData.length !== labels.length || cmData[0].length !== labels.length) { element.innerHTML = `<p>CM dimensions mismatch. Labels: ${labels.length}, CM: ${cmData.length}x${Array.isArray(cmData[0]) ? cmData[0].length : 'N/A'}</p>`; return; }
         let tableHtml = '<table><thead><tr><th title="Actual Class \\ Predicted Class">True \\ Pred</th>';
