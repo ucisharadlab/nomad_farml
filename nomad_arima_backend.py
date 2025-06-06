@@ -6,11 +6,13 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_recall_fscore_support
-from scipy.stats import entropy # For KL divergence
-import random # For sampling
-import traceback # For detailed error logging
+from scipy.stats import entropy
+import random
+import traceback
+import os
+import importlib.util
 
-# Import classifiers
+# Import all supported classifiers
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -19,210 +21,134 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.dummy import DummyClassifier
 
-# --- Configuration ---
-CANDIDATE_MODELS_CONFIG = [
-    ("Dummy (Uniform)", DummyClassifier(strategy="uniform"), 0.1),
-    ("Decision Tree (Shallow)", DecisionTreeClassifier(max_depth=3, random_state=42), 1.0),
-    ("Gaussian Naive Bayes", GaussianNB(), 1.2),
-    ("K-Nearest Neighbors (K=5)", KNeighborsClassifier(n_neighbors=5), 2.5),
-    ("Decision Tree (Deeper)", DecisionTreeClassifier(max_depth=10, random_state=42), 12.0),
-    ("Random Forest (Small)", RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42), 25.0),
-    ("Random Forest (Large)", RandomForestClassifier(n_estimators=100, random_state=42), 35.0),
-]
+# --- Constants ---
 ALPHA_SMOOTHING = 1
 RANDOM_SEED_FOR_SAMPLING = 42
 
-# --- Helper Functions ---
-def get_quality_metrics(y_true, y_pred, labels, class_names_map=None):
-    # Ensure y_true and y_pred are not empty and have compatible types/lengths for sklearn metrics
-    if not isinstance(y_true, (list, np.ndarray)) or not isinstance(y_pred, (list, np.ndarray)):
-        print(f"DEBUG get_quality_metrics: y_true or y_pred is not list/array. y_true type: {type(y_true)}, y_pred type: {type(y_pred)}")
-        # Return default/empty metrics to prevent crashes
-        return np.array([]), 0.0, {}, {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
-    if len(y_true) == 0 or len(y_pred) == 0:
-        print("DEBUG get_quality_metrics: y_true or y_pred is empty.")
-        return np.array([]), 0.0, {}, {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
-    if len(y_true) != len(y_pred):
-        print(f"DEBUG get_quality_metrics: y_true (len {len(y_true)}) and y_pred (len {len(y_pred)}) have different lengths.")
-        # Attempt to truncate to the shorter length if that makes sense, or return error metrics
-        min_len = min(len(y_true), len(y_pred))
-        y_true = np.array(y_true)[:min_len]
-        y_pred = np.array(y_pred)[:min_len]
-        if min_len == 0: # If after truncation it's still empty
-             return np.array([]), 0.0, {}, {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
+# --- Model Instantiation ---
+# Dictionary to map string names to classifier classes
+CLASSIFIER_MAP = {
+    "LogisticRegression": LogisticRegression,
+    "DecisionTreeClassifier": DecisionTreeClassifier,
+    "RandomForestClassifier": RandomForestClassifier,
+    "GradientBoostingClassifier": GradientBoostingClassifier,
+    "SVC": SVC,
+    "GaussianNB": GaussianNB,
+    "KNeighborsClassifier": KNeighborsClassifier,
+    "DummyClassifier": DummyClassifier,
+}
 
-
-    # Ensure labels are appropriate for confusion_matrix
-    # If labels are numeric, ensure they are present in y_true or y_pred, or sklearn might error.
-    # unique_combined_labels = np.union1d(np.unique(y_true), np.unique(y_pred))
-    # if not all(label in unique_combined_labels for label in labels):
-    #     print(f"DEBUG get_quality_metrics: Provided labels {labels} not fully represented in y_true/y_pred combined {unique_combined_labels}. Adjusting labels for CM.")
-        # Consider using unique_combined_labels if `labels` is problematic, but this changes metric scope.
-        # For now, assume `labels` (eval_labels_numeric) is the definitive set of classes.
+def get_classifier_from_config(model_config, custom_models_path):
+    """
+    Instantiates a classifier from its configuration dictionary.
+    Handles both standard sklearn models and custom uploaded models.
+    """
+    model_type = model_config.get("type")
+    params = model_config.get("params", {})
     
+    if model_config.get("is_custom"):
+        module_name = model_config.get("module_name")
+        class_name = model_config.get("class_name")
+        if not module_name or not class_name:
+            raise ValueError(f"Custom model '{model_config['name']}' is missing module or class name.")
+        
+        filepath = os.path.join(custom_models_path, f"{module_name}.py")
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Custom model file not found for '{model_config['name']}' at {filepath}")
+        
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, filepath)
+            custom_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(custom_module)
+            ClassifierClass = getattr(custom_module, class_name)
+        except Exception as e:
+            raise ImportError(f"Failed to load custom model '{class_name}' from '{filepath}': {e}")
+    else:
+        if model_type not in CLASSIFIER_MAP:
+            raise ValueError(f"Unknown model type: '{model_type}'")
+        ClassifierClass = CLASSIFIER_MAP[model_type]
+        
+    # Filter params to only include those accepted by the constructor
+    # This avoids errors if extra params like 'random_state' are passed to models that don't use it
+    valid_params = {k: v for k, v in params.items() if k in ClassifierClass().get_params()}
+
+    return ClassifierClass(**valid_params)
+
+
+# --- Helper Functions (largely unchanged) ---
+def get_quality_metrics(y_true, y_pred, labels, class_names_map=None):
+    if len(y_true) == 0 or len(y_pred) == 0:
+        return np.array([]), 0.0, {}, {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
+
     cm = confusion_matrix(y_true, y_pred, labels=labels)
     acc = accuracy_score(y_true, y_pred)
-    # average=None returns per-class. average='weighted' for overall.
     p_r_f1_s = precision_recall_fscore_support(y_true, y_pred, labels=labels, average=None, zero_division=0)
     
     metrics_per_class = {}
-    if class_names_map: # Ensure class_names_map is not None
-        for i, label_numeric in enumerate(labels): # label_numeric is what's in `labels`
-            # Map numeric label to string name for the output dictionary keys
-            class_name_str = class_names_map.get(int(label_numeric))
-            if class_name_str is None: # Fallback if a numeric label isn't in the map
-                print(f"Warning: Numeric label {label_numeric} not found in class_names_map. Using numeric label as key.")
-                class_name_str = str(label_numeric)
-
-            metrics_per_class[class_name_str] = {
-                "precision": float(p_r_f1_s[0][i]),
-                "recall": float(p_r_f1_s[1][i]),
-                "f1-score": float(p_r_f1_s[2][i]),
-                "support": int(p_r_f1_s[3][i])
-            }
-    else: # Fallback if no class_names_map provided
-        print("DEBUG get_quality_metrics: class_names_map is None. Using numeric labels as keys for per-class metrics.")
+    if class_names_map:
         for i, label_numeric in enumerate(labels):
-             metrics_per_class[str(label_numeric)] = {
+            class_name_str = class_names_map.get(int(label_numeric), str(label_numeric))
+            metrics_per_class[class_name_str] = {
                 "precision": float(p_r_f1_s[0][i]), "recall": float(p_r_f1_s[1][i]),
                 "f1-score": float(p_r_f1_s[2][i]), "support": int(p_r_f1_s[3][i])
             }
-
-
+            
     weighted_avg = precision_recall_fscore_support(y_true, y_pred, labels=labels, average='weighted', zero_division=0)
-    avg_metrics = {
-        "precision": float(weighted_avg[0]),
-        "recall": float(weighted_avg[1]),
-        "f1-score": float(weighted_avg[2]),
-        "support": int(np.sum(p_r_f1_s[3])) # Total support across effective labels
-    }
+    avg_metrics = {"precision": float(weighted_avg[0]), "recall": float(weighted_avg[1]), "f1-score": float(weighted_avg[2]), "support": int(np.sum(p_r_f1_s[3]))}
     return cm, float(acc), metrics_per_class, avg_metrics
 
-# --- Model Class ---
-class Model: # (No changes, keeping for completeness of the file structure)
+
+# --- Model Class (largely unchanged) ---
+class Model:
     def __init__(self, name, classifier_instance, cost, preprocessor):
         self.name = name
         self.cost = float(cost)
         self.classifier = classifier_instance
+        self.preprocessor = preprocessor
+        self.trained_pipeline_ = None
         self.cm = None
         self.accuracy = 0.0
         self.metrics_per_class = {}
         self.avg_metrics = {}
         self.exit_classes = set()
-        self.label_encoder_classes_ = None # Numeric labels, ordered as per classifier output/CM
-        self.class_names_map = None # Map: numeric_label -> string_name
-        self.preprocessor = preprocessor
-        self.trained_pipeline_ = None
+        self.label_encoder_classes_ = None
+        self.class_names_map = None
 
     def train(self, X_train, y_train):
-        pipeline_steps = []
-        if self.preprocessor:
-            pipeline_steps.append(('preprocessor', self.preprocessor))
-        else: # Should ideally not happen if preprocessor is always passed
-            print(f"Warning: Model '{self.name}' received no preprocessor. Using default StandardScaler.")
-            pipeline_steps.append(('scaler', StandardScaler()))
-        pipeline_steps.append(('classifier', self.classifier))
+        pipeline_steps = [('preprocessor', self.preprocessor if self.preprocessor else StandardScaler()), ('classifier', self.classifier)]
         self.trained_pipeline_ = Pipeline(steps=pipeline_steps)
-        try:
-            self.trained_pipeline_.fit(X_train, y_train)
-            print(f"DEBUG: Model '{self.name}' trained successfully.")
-             # After training, if using scikit-learn classifiers, they might have a classes_ attribute
-            if hasattr(self.trained_pipeline_.named_steps['classifier'], 'classes_'):
-                # This classes_ attribute usually holds the actual class labels seen during fit,
-                # often in sorted order, and corresponds to predict_proba columns.
-                # It's what LabelEncoder().fit(y_train).classes_ would give.
-                # We store this if the global label_encoder_classes_ isn't already set from a common source.
-                # self.label_encoder_classes_ = self.trained_pipeline_.named_steps['classifier'].classes_
-                # print(f"DEBUG: Model '{self.name}' classifier classes_: {self.label_encoder_classes_}")
-                pass # This should be set during evaluate based on the overall y labels for consistency.
-        except Exception as e:
-            print(f"ERROR: Training model '{self.name}' failed: {e}")
-            print(traceback.format_exc())
-
+        self.trained_pipeline_.fit(X_train, y_train)
 
     def predict(self, X_test):
-        if self.trained_pipeline_ is None:
-            print(f"ERROR: Model '{self.name}' predict called before training.")
-            # Return a default prediction or raise error depending on desired handling
-            # For now, if it has classes, predict first class, else error or empty.
-            if self.label_encoder_classes_ is not None and len(self.label_encoder_classes_) > 0:
-                return np.full(X_test.shape[0], self.label_encoder_classes_[0]) 
-            return np.array([]) # Or raise error
-
+        if self.trained_pipeline_ is None: raise RuntimeError("Model not trained")
         return self.trained_pipeline_.predict(X_test)
 
     def predict_proba(self, X_test):
-        if self.trained_pipeline_ is None:
-            print(f"ERROR: Model '{self.name}' predict_proba called before training.")
-            # Return default probabilities or raise error
-            if self.label_encoder_classes_ is not None and len(self.label_encoder_classes_) > 0:
-                n_classes = len(self.label_encoder_classes_)
-                probas = np.zeros((X_test.shape[0], n_classes))
-                probas[:, 0] = 1.0 # Default to first class with 100% proba
-                return probas
-            return np.array([])
-
-
-        if hasattr(self.trained_pipeline_.named_steps['classifier'], 'predict_proba'):
-            return self.trained_pipeline_.predict_proba(X_test)
-        else: # Classifier doesn't have predict_proba (e.g., some SVMs without probability=True)
-            print(f"DEBUG: Model '{self.name}'s classifier does not have predict_proba. Generating one-hot probabilities.")
-            predictions = self.predict(X_test) # Encoded predictions
-            if self.label_encoder_classes_ is None or len(self.label_encoder_classes_) == 0:
-                print(f"ERROR: Model '{self.name}' cannot generate probabilities without label_encoder_classes_.")
-                return np.zeros((X_test.shape[0], 0)) # Return empty probas array with correct num_samples
-
+        if self.trained_pipeline_ is None: raise RuntimeError("Model not trained")
+        if not hasattr(self.trained_pipeline_.named_steps['classifier'], 'predict_proba'):
+            predictions = self.predict(X_test)
             n_classes = len(self.label_encoder_classes_)
             probas = np.zeros((X_test.shape[0], n_classes))
-            
-            # Create a mapping from the numeric class label to its index in label_encoder_classes_
-            # This order is crucial for aligning with CM and other metrics.
-            class_to_idx_map = {label_numeric: i for i, label_numeric in enumerate(self.label_encoder_classes_)}
-
+            class_to_idx_map = {label: i for i, label in enumerate(self.label_encoder_classes_)}
             for i, p_encoded in enumerate(predictions):
                 if p_encoded in class_to_idx_map:
-                    class_idx = class_to_idx_map[p_encoded]
-                    probas[i, class_idx] = 1.0
-                else:
-                    # This case should ideally not happen if predictions are from the model's known classes.
-                    # It implies p_encoded is a value not seen in self.label_encoder_classes_.
-                    print(f"Warning: Model '{self.name}' made a prediction '{p_encoded}' not in its known classes {self.label_encoder_classes_}.")
-                    # Default to uniform probability or skip setting if strict. For now, leave as zeros for this row.
+                    probas[i, class_to_idx_map[p_encoded]] = 1.0
             return probas
+        return self.trained_pipeline_.predict_proba(X_test)
 
-    def evaluate(self, X_test, y_test, labels, class_names_map): # labels are numeric, class_names_map is num->str
-        print(f"DEBUG: Evaluating model '{self.name}'. X_test shape: {X_test.shape}, y_test len: {len(y_test)}")
-        self.label_encoder_classes_ = labels # Store the global numeric labels order
-        self.class_names_map = class_names_map # Store the num_to_str map
-
-        if X_test.shape[0] == 0: # Cannot evaluate on empty test features
+    def evaluate(self, X_test, y_test, labels, class_names_map):
+        self.label_encoder_classes_ = labels
+        self.class_names_map = class_names_map
+        if X_test.shape[0] == 0:
             print(f"Warning: Model '{self.name}' evaluation skipped, X_test is empty.")
-            self.accuracy = 0.0
-            self.metrics_per_class = {cn_map.get(int(l), str(l)): {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0} for l, cn_map in zip(labels, [class_names_map]*len(labels))}
-            self.avg_metrics = {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
-            self.cm = np.array([])
             return
-
         y_pred = self.predict(X_test)
-        
-        print(f"DEBUG: Model '{self.name}' y_test sample: {y_test[:5]}, y_pred sample: {y_pred[:5]}")
-        print(f"DEBUG: Model '{self.name}' evaluation labels (numeric): {labels}")
-        print(f"DEBUG: Model '{self.name}' evaluation class_names_map (num->str): {class_names_map}")
-
         self.cm, self.accuracy, self.metrics_per_class, self.avg_metrics = get_quality_metrics(
             y_test, y_pred, labels=labels, class_names_map=class_names_map
         )
-        print(f"DEBUG: Model '{self.name}' evaluated. Accuracy: {self.accuracy:.4f}")
 
-
-    def get_quality(self, class_name_str, metric_type="f1-score"): # class_name is string
-        if class_name_str not in self.metrics_per_class:
-            # print(f"DEBUG: Class '{class_name_str}' not found in metrics for model '{self.name}'. Returning 0.0. Available: {list(self.metrics_per_class.keys())}")
-            return 0.0
-        return float(self.metrics_per_class[class_name_str].get(metric_type, 0.0))
-
-    def __repr__(self):
-        return f"Model(name='{self.name}', cost={self.cost}, accuracy={self.accuracy:.4f})"
+    def get_quality(self, class_name_str, metric_type="f1-score"):
+        return float(self.metrics_per_class.get(class_name_str, {}).get(metric_type, 0.0))
 
 
 # --- NOMAD Engine Class ---
@@ -490,7 +416,7 @@ class NOMADEngine:
                                  X_test_overall, y_test_encoded_overall,
                                  candidate_model_names_for_counts, X_test_column_names,
                                  batch_size=10, workload_phases=None,
-                                 X_by_class_str_keys=None, y_by_class_str_keys=None):
+                                 X_by_class_str_keys=None, y_by_class_str_keys=None,**kwargs):
 
         nomad_predictions_final_encoded_list = []
         true_labels_final_list = []
@@ -815,121 +741,77 @@ def load_and_preprocess_data_for_flask(csv_file_path):
            X_by_class_str_keys, y_by_class_str_keys, None
 
 
-# --- train_evaluate_individual_models_for_flask (with more logging) ---
-def train_evaluate_individual_models_for_flask(X_full, y_encoded_full, preprocessor, class_map_numeric_to_str, unique_enc_labels, candidate_configs):
-    print(f"DEBUG train_evaluate_models: X_full shape: {X_full.shape}, y_encoded_full length: {len(y_encoded_full)}")
-    if X_full.empty and not any(cfg[1].__class__ == DummyClassifier for cfg in candidate_configs):
-        print("Warning train_evaluate_models: X_full is empty. Only DummyClassifiers might train successfully.")
+def train_evaluate_individual_models_for_flask(X_full, y_encoded_full, preprocessor, class_map_numeric_to_str, unique_enc_labels, candidate_configs_dict, custom_models_path):
+    """
+    Trains and evaluates models based on a dynamic configuration dictionary.
+    """
     if len(y_encoded_full) == 0:
-        print("ERROR train_evaluate_models: y_encoded_full is empty. Cannot train.")
-        raise ValueError("Cannot train models with an empty target variable (y_encoded_full).")
+        raise ValueError("Cannot train models with an empty target variable.")
     
-    min_samples_per_class = np.min(np.unique(y_encoded_full, return_counts=True)[1]) if len(y_encoded_full) > 0 else 0
-    test_size_param = 0.3
-    X_train, X_test, y_train, y_test = None, None, None, None # Initialize
-
-    # Robust train/test split logic
-    num_samples = X_full.shape[0]
-    can_stratify = min_samples_per_class >= 2 and len(np.unique(y_encoded_full)) > 1
-    
-    if num_samples <= 1 or (num_samples * test_size_param < 1) or (num_samples * (1-test_size_param) < 1):
-        print(f"DEBUG train_evaluate_models: Dataset too small for split (samples: {num_samples}). Using full data for train/test.")
-        X_train, X_test, y_train, y_test = X_full, X_full, y_encoded_full, y_encoded_full
-    else:
-        try:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_full, y_encoded_full, test_size=test_size_param, random_state=42,
-                stratify=y_encoded_full if can_stratify else None
-            )
-            print(f"DEBUG train_evaluate_models: Split successful. X_train: {X_train.shape}, X_test: {X_test.shape}")
-        except ValueError as e:
-            print(f"DEBUG train_evaluate_models: Stratified split failed ({e}). Trying non-stratified.")
-            try:
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X_full, y_encoded_full, test_size=test_size_param, random_state=42, stratify=None
-                )
-                print(f"DEBUG train_evaluate_models: Non-stratified split successful. X_train: {X_train.shape}, X_test: {X_test.shape}")
-            except Exception as e_split_again: # Should be rare if num_samples > 1
-                print(f"ERROR train_evaluate_models: Even non-stratified split failed ({e_split_again}). Using full data for train/test.")
-                X_train, X_test, y_train, y_test = X_full, X_full, y_encoded_full, y_encoded_full
-    
-    if X_train is None or y_train is None or X_test is None or y_test is None : # Should not happen if logic above is complete
-        print("CRITICAL ERROR train_evaluate_models: Train/Test split resulted in None values. This should not happen.")
-        # Fallback to prevent crash, though indicates deeper issue
-        X_train, X_test, y_train, y_test = X_full, X_full, y_encoded_full, y_encoded_full
-
+    # Train/Test split
+    can_stratify = len(np.unique(y_encoded_full)) > 1 and np.min(np.unique(y_encoded_full, return_counts=True)[1]) >= 2
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_full, y_encoded_full, test_size=0.3, random_state=42,
+        stratify=y_encoded_full if can_stratify else None
+    )
 
     trained_models_dict = {}
     model_summaries = []
 
-    for name, clf_instance, cost_val in candidate_configs:
-        print(f"DEBUG train_evaluate_models: Processing model '{name}'")
-        model = Model(name, clf_instance, float(cost_val), preprocessor=preprocessor)
+    for name, config in candidate_configs_dict.items():
+        print(f"Processing model '{name}'...")
         try:
-            if X_train.empty and not isinstance(clf_instance, DummyClassifier):
-                print(f"Warning train_evaluate_models: Skipping training for '{name}', X_train is empty and not Dummy.")
-                model.accuracy = 0.0 # Default
-            else:
+            # Instantiate classifier using the new factory function
+            clf_instance = get_classifier_from_config(config, custom_models_path)
+            model = Model(name, clf_instance, float(config['cost']), preprocessor=preprocessor)
+            
+            if X_train.shape[0] > 0:
                 model.train(X_train, y_train)
             
-            if X_test.shape[0] > 0 and len(y_test) > 0:
+            if X_test.shape[0] > 0:
                 model.evaluate(X_test, y_test, labels=unique_enc_labels, class_names_map=class_map_numeric_to_str)
-            else:
-                print(f"Warning train_evaluate_models: Test set for model '{name}' is empty. Evaluation metrics will be default/zero.")
-                # Ensure metrics are defaulted if evaluate isn't called or if it handles empty y_test
-                model.accuracy = 0.0
-                model.metrics_per_class = {cn_map.get(int(l), str(l)): {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0} for l, cn_map in zip(unique_enc_labels, [class_map_numeric_to_str]*len(unique_enc_labels))}
-                model.avg_metrics = {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
-
+            
             trained_models_dict[name] = model
-            model_summaries.append({ "name": name, "accuracy": model.accuracy,
-                                     "f1_score_weighted": model.avg_metrics.get('f1-score', 0.0),
-                                     "cost": model.cost })
-        except Exception as e_model_train:
-            print(f"ERROR train_evaluate_models: Failed for model '{name}': {e_model_train}")
+            model_summaries.append({
+                "name": name, "accuracy": model.accuracy,
+                "f1_score_weighted": model.avg_metrics.get('f1-score', 0.0),
+                "cost": model.cost
+            })
+        except Exception as e:
+            print(f"ERROR: Failed to process model '{name}': {e}")
             print(traceback.format_exc())
-    print(f"DEBUG train_evaluate_models: Finished. Returning X_test shape: {X_test.shape if X_test is not None else 'None'}, y_test length: {len(y_test) if y_test is not None else 'None'}")
+            # Optionally, re-raise or add a failed model summary
+            model_summaries.append({ "name": f"{name} (FAILED)", "accuracy": 0, "f1_score_weighted": 0, "cost": config['cost'] })
+
     return trained_models_dict, model_summaries, X_test, y_test, y_train
 
 
-# --- run_nomad_simulation_for_flask_streamed (passes data to NOMADEngine) ---
-# (No new logging here, NOMADEngine.stream_evaluate_strategy has the detailed logs)
 def run_nomad_simulation_for_flask_streamed(trained_models_dict, role_model_name, epsilon,
                                            initial_class_priors_str_keys, unique_class_names_ordered_str,
                                            class_map_numeric_to_str, quality_metric_for_ec, safety_check_type,
                                            X_test_data_overall, y_test_encoded_data_overall,
-                                           candidate_configs, X_test_column_names,
-                                           batch_size=10, adaptive_update_window=0, adaptive_beta=0.3,
-                                           workload_phases=None, 
-                                           X_by_class_str_keys=None, y_by_class_str_keys=None):
-    print(f"DEBUG run_nomad_simulation: Initializing NOMADEngine. Role: {role_model_name}, Epsilon: {epsilon}")
-    if workload_phases and len(workload_phases) > 0:
-        print(f"DEBUG run_nomad_simulation: Workload phases provided: {len(workload_phases)} phases.")
-    else:
-        print(f"DEBUG run_nomad_simulation: No workload phases, using sequential X_test_data_overall (shape: {X_test_data_overall.shape if X_test_data_overall is not None else 'None'}).")
-
+                                           candidate_configs, X_test_column_names, **kwargs):
+    """
+    Initializes and runs the NOMAD engine, yielding simulation updates.
+    """
     nomad_engine = NOMADEngine(
-        models_dict=trained_models_dict,
-        role_model_name=role_model_name,
-        epsilon=epsilon,
-        initial_class_priors_str_keys=initial_class_priors_str_keys, # Corrected
-        unique_classes_ordered_str=unique_class_names_ordered_str,   # Corrected
-        class_map_numeric_to_str=class_map_numeric_to_str,           # Corrected
+        models_dict=trained_models_dict, role_model_name=role_model_name, epsilon=epsilon,
+        initial_class_priors_str_keys=initial_class_priors_str_keys,
+        unique_classes_ordered_str=unique_class_names_ordered_str,
+        class_map_numeric_to_str=class_map_numeric_to_str,
         quality_metric_for_ec=quality_metric_for_ec,
         safety_check_type=safety_check_type,
-        adaptive_update_window=adaptive_update_window,
-        adaptive_beta=adaptive_beta
+        adaptive_update_window=kwargs.get('adaptive_update_window', 0),
+        adaptive_beta=kwargs.get('adaptive_beta', 0.3)
     )
-    candidate_model_names = [name for name, _, _ in candidate_configs]
+    
+    candidate_model_names = list(candidate_configs.keys())
 
-    for update_package in nomad_engine.stream_evaluate_strategy(
+    # Pass all keyword arguments to the strategy evaluator
+    yield from nomad_engine.stream_evaluate_strategy(
         X_test_overall=X_test_data_overall,
         y_test_encoded_overall=y_test_encoded_data_overall,
         candidate_model_names_for_counts=candidate_model_names,
         X_test_column_names=X_test_column_names,
-        batch_size=batch_size,
-        workload_phases=workload_phases,
-        X_by_class_str_keys=X_by_class_str_keys,
-        y_by_class_str_keys=y_by_class_str_keys
-    ):
-        yield update_package
+        **kwargs
+    )

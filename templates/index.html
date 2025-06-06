@@ -3,18 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <title>NOMAD Execution Visualizer</title>
+    <!-- The static files are served by Flask, so the path is relative to the 'static' folder -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>NOMAD Configuration & Visualization</h1>
+        <header>
+            <h1>NOMAD Execution Visualizer</h1>
+            <p>An interactive tool for configuring and analyzing the NOMAD adaptive model chaining strategy.</p>
+        </header>
 
+        <!-- Section 1: Model Management -->
+        <section id="model-management-section">
+            <h2>1. Manage Candidate Models</h2>
+            <div id="modelManagementStatus" class="status-message"></div>
+            <div class="table-container">
+                <table id="candidateModelsTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Parameters</th>
+                            <th>Cost</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Rows will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="form-container" id="add-model-form-container">
+                <h3>Add New Model</h3>
+                <div class.="form-grid">
+                    <input type="text" id="newModelName" placeholder="Unique Model Name">
+                    <input type="number" id="newModelCost" placeholder="Cost (e.g., 5.5)" min="0" step="0.1">
+                    <select id="newModelType">
+                        <option value="" disabled selected>Select Model Type</option>
+                        <option value="DecisionTreeClassifier">Decision Tree</option>
+                        <option value="RandomForestClassifier">Random Forest</option>
+                        <option value="GaussianNB">Gaussian Naive Bayes</option>
+                        <option value="KNeighborsClassifier">K-Nearest Neighbors</option>
+                        <option value="LogisticRegression">Logistic Regression</option>
+                        <option value="SVC">Support Vector Machine (SVC)</option>
+                        <option value="DummyClassifier">Dummy Classifier</option>
+                        <option value="custom">-- Custom Model (from file) --</option>
+                    </select>
+                </div>
+                <div id="modelParamsContainer" class="form-grid params-grid">
+                    <!-- Dynamic parameter fields will be inserted here -->
+                </div>
+                 <div id="customModelUploadContainer" style="display:none;" class="form-grid custom-upload">
+                    <input type="text" id="customModelClassName" placeholder="Python Class Name in File">
+                    <input type="file" id="customModelFile" accept=".py">
+                </div>
+                <button id="addModelBtn">Add Model</button>
+            </div>
+        </section>
+
+        <!-- Section 2: Data Upload -->
         <section id="data-upload-section">
-            <h2>1. Upload Data & Train Base Models</h2>
+            <h2>2. Upload Data & Train Base Models</h2>
+            <p>Upload a CSV where the second to last column is the target variable.</p>
             <input type="file" id="csvFile" accept=".csv">
-            <button id="uploadBtn">Upload and Train Base Models</button>
+            <button id="uploadBtn">Upload and Train</button>
             <div id="uploadStatus" class="status-message"></div>
             <div id="initialModelPerformance" style="display:none;">
                 <h3>Individual Model Performance (on Test Set Split)</h3>
@@ -24,9 +78,10 @@
                 </table>
             </div>
         </section>
-
+        
+        <!-- Section 3: NOMAD Configuration -->
         <section id="nomad-config-section" style="display:none;">
-            <h2>2. Configure NOMAD Engine</h2>
+            <h2>3. Configure NOMAD Engine</h2>
             <div class="config-grid">
                 <div class="config-item">
                     <label for="roleModelSelect">Role Model:</label>
@@ -54,37 +109,37 @@
                 <div class="config-item">
                     <label for="adaptiveWindowInput">Adaptive Prior Update Window (events):</label>
                     <input type="number" id="adaptiveWindowInput" value="100" step="10" min="0">
-                    <small>Set to 0 to disable adaptive priors.</small>
+                    <small>Set to 0 to disable.</small>
                 </div>
                 <div class="config-item">
-                    <label for="adaptiveBetaInput">Adaptive Prior Beta (decay rate β):</label>
+                    <label for="adaptiveBetaInput">Adaptive Prior Beta (β):</label>
                     <input type="number" id="adaptiveBetaInput" value="0.3" step="0.05" min="0" max="1.0">
                 </div>
             </div>
 
             <div id="workload-phases-config">
-                <h3>Define Workload Phases</h3>
-                <div id="phasesContainer">
-                    </div>
-                <button id="addPhaseBtn" class="small-btn">Add New Phase</button>
+                <h3>Define Workload Phases (Optional)</h3>
+                <p>Define sequential phases with different class distributions. If empty, simulation runs on the test set split.</p>
+                <div id="phasesContainer"></div>
+                <button id="addPhaseBtn" class="small-btn">Add Phase</button>
             </div>
 
-            <button id="runNomadBtn" style="margin-top: 20px;">Run NOMAD Live Simulation</button>
+            <button id="runNomadBtn" style="margin-top: 20px;">Run NOMAD Simulation</button>
             <div id="nomadRunStatus" class="status-message"></div>
         </section>
 
+        <!-- Section 4: Results -->
         <section id="results-section" style="display:none;">
-            <h2>3. NOMAD Execution Results (Live)</h2>
-            <p><em>Adaptive priors update based on recent prediction frequencies. Phased workload (if defined) samples data to meet target distributions per phase, reporting KL divergence from previous phase's target.</em></p>
+            <h2>4. NOMAD Execution Results (Live)</h2>
             <div id="liveStatus" class="status-message">Live updates will appear here...</div>
-            <div id="phaseShiftLog" class="status-message" style="max-height: 150px; overflow-y: auto; background-color: #f0f0f0; margin-top:10px; display:none;">KL Divergence Log:</div>
+            <div id="phaseShiftLog" class="status-message log-box" style="display:none;"></div>
             <div class="charts-grid">
                 <div class="chart-container"><h3>Model Execution Frequency</h3><canvas id="modelRunCountChart"></canvas></div>
                 <div class="chart-container"><h3>Cumulative Cost: NOMAD vs. Role Model</h3><canvas id="cumulativeCostChart"></canvas></div>
-                <div class="chart-container"><h3>NOMAD vs. Role Model Accuracy (Trend)</h3><canvas id="accuracyTrendChart"></canvas></div>
-                <div class="chart-container"><h3>Class Prior Distribution Over Time</h3><canvas id="classPriorsChart"></canvas></div>
+                <div class="chart-container"><h3>Accuracy Trend</h3><canvas id="accuracyTrendChart"></canvas></div>
+                <div class="chart-container"><h3>Class Prior Distribution</h3><canvas id="classPriorsChart"></canvas></div>
             </div>
-            <div id="finalSummaryArea" style="display:none;">
+            <div id="finalSummaryArea" style="display:none;margin-top: 50px;">
                 <h3>Final Summary</h3>
                 <div class="results-grid">
                     <div id="nomadOverallMetrics" class="metrics-box"></div>
@@ -92,12 +147,13 @@
                 </div>
                 <div id="exitClassesDisplay" class="results-box"></div>
                 <div id="confusionMatrices" class="results-box">
-                    <h4>NOMAD Confusion Matrix (Final)</h4><div id="nomadCM" class="cm-table"></div>
-                    <h4>Role Model Confusion Matrix (Final)</h4><div id="roleModelCM" class="cm-table"></div>
+                    <h4>NOMAD Confusion Matrix</h4><div id="nomadCM" class="cm-table"></div>
+                    <h4>Role Model Confusion Matrix</h4><div id="roleModelCM" class="cm-table"></div>
                 </div>
             </div>
         </section>
     </div>
+    <!-- The script is also served by Flask -->
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
