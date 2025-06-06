@@ -1,149 +1,175 @@
-# NOMAD: Dynamic Model Chaining for Efficient Classification
+NOMAD: Adaptive Model Chaining Visualizer
+Introduction
+The NOMAD (Non-Monotonic Adaptive Deployment) Visualizer is an interactive web application designed to demonstrate and analyze a powerful strategy for optimizing machine learning model deployments. It provides a "what-if" engine to explore the trade-offs between a model's computational cost and its predictive accuracy.
 
-This project implements the NOMAD algorithm, a strategy for dynamic, cost-efficient classification of event streams. It selects from a set of pre-trained machine learning models with varying computational costs and quality characteristics, creating a chain of execution for each incoming event. The goal is to match the classification quality of a high-quality (but potentially expensive) "role model" within a defined tolerance (`epsilon`), while significantly minimizing the average computational cost per event.
+At its core, this tool simulates a smart system that dynamically selects the most efficient ML model from a pool of candidates for each individual task, aiming to achieve the highest possible accuracy for the lowest possible cost.
 
-This implementation is based on the concepts described in the provided paper sections, focusing on dynamic model selection using utility scores, chain safety checks, and probability updates.
+This visualizer helps answer the fundamental question: How can we achieve the performance of our most powerful models while only paying the cost of our cheapest ones?
 
-**Current Date Context:** Generated on Tuesday, April 29, 2025 (IST).
+The Problem It Solves
+In modern machine learning, there is an inherent conflict:
 
-## Core Concepts
+High-Performance Models (e.g., large ensembles, deep neural networks) are highly accurate but are computationally expensive, leading to high operational costs, energy consumption, and slower response times.
 
-* **Model Set (`mathcal{M}`):** A collection of classification models (e.g., Decision Tree, Random Forest, SVC) trained for the same task, each with an associated prediction `cost` (e.g., average inference time) and quality metrics (e.g., recall, precision per class).
-* **Role Model (`M_r`):** A designated model within the set, typically the one with the highest overall quality (e.g., highest F1-score or recall), often also having a high cost. The performance of the NOMAD strategy is benchmarked against this model.
-* **Epsilon (`epsilon`):** A tolerance parameter ($0 \le \epsilon < 1$) defining the maximum acceptable *relative* drop in quality for the overall strategy compared to the role model. For example, `epsilon = 0.05` means the strategy's recall (or other chosen metric) for each class must be at least 95% of the role model's recall for that same class.
-* **Exit Class (`EC(M_i)`):** For a given model `M_i`, its Exit Classes are the set of target classes `C_j` for which `M_i`'s quality is considered "good enough" compared to the role model, specifically: `Quality(M_i, C_j) >= (1 - epsilon) * Quality(M_r, C_j)`. If `M_i` predicts an event belongs to one of its exit classes, the chain terminates, and that prediction is used.
-* **Model Chain (`S_e`):** The ordered sequence of models executed for a specific event `e`. The chain stops when a model predicts one of its own exit classes.
-* **Chain Safety:** A mechanism to ensure that executing a sequence of models doesn't degrade the classification quality below the `(1 - epsilon)` threshold compared to the role model, especially for classes that might pass through multiple models before reaching their designated exit model. This implementation uses the "Conservative Chain Safety Estimation" based on recall products.
-* **Utility Score (`U(M_i)`):** A heuristic used to select the next model to run in the chain. It typically balances the probability of the current event belonging to one of the model's exit classes against the model's computational cost: `Utility = Sum(P(Cj) for Cj in EC(Mi)) / Cost(Mi)`.
-* **Probability Updates:** After a model runs but *doesn't* exit, the system updates its internal belief (probability distribution) about the event's true class based on the model's output (e.g., softmax scores), influencing the utility calculation for subsequent model selection.
+Low-Cost Models (e.g., shallow decision trees, linear models) are fast and cheap to run but often lack the accuracy required for critical tasks.
 
-## Project Structure
-nomad_project/
-├── nomad/                  # Main Python package
-│   ├── init.py         # Makes 'nomad' a package
-│   ├── config.py           # Configuration variables (paths, epsilon, etc.)
-│   ├── data_utils.py       # Data loading, preprocessing, splitting
-│   ├── model_training.py   # Functions to train or load models
-│   ├── evaluation.py       # ModelWrapper class, metric calculations, cost timing
-│   └── nomad_strategy.py   # Core NOMAD logic (EC, safety, utility, select_and_classify)
-├── data/                   # Default directory for datasets
-│   └── your_dataset.csv    # Placeholder for your data file
-├── models/                 # Default directory to save/load trained models (optional)
-├── results/                # Default directory to save simulation results (optional)
-├── main.py                 # Main executable script to run simulation & evaluation
-└── requirements.txt        # Project dependencies
+A one-size-fits-all approach, where a single model is used for every task, is inefficient. It's like using a sledgehammer to crack a nut. The NOMAD strategy proposes a more intelligent alternative: an adaptive chain of models that can dynamically route tasks, ensuring that easy predictions are handled by cheap models and only the most difficult predictions are escalated to expensive ones.
 
-* **`nomad/config.py`**: Central place to set file paths, epsilon, role model name, etc.
-* **`nomad/data_utils.py`**: Handles loading your specific dataset (or generates dummy data), preprocessing, and splitting into train/validation/test sets. Returns integer labels for training/evaluation and string class names.
-* **`nomad/model_training.py`**: Contains functions to train the different models (M1, M2, M3). Currently uses Decision Tree, Random Forest, and SVC. Modify this to add/change models or load pre-trained ones. Uses integer labels for `.fit()`.
-* **`nomad/evaluation.py`**: Defines the `ModelWrapper` class to hold models and their metadata. Includes `calculate_quality_metrics` to evaluate models on the validation set (using integer labels), measure cost (using `timeit`), and determine `predict_proba` capability. Handles conversion between integer-based metrics and string-based attributes in the wrapper.
-* **`nomad/nomad_strategy.py`**: Implements the core NOMAD algorithm logic:
-    * `determine_exit_classes`: Calculates Exit Classes based on epsilon and role model comparison (uses string class names).
-    * `check_chain_safety_conservative`: Implements the recall-based chain safety check (uses string class names).
-    * `update_probabilities`: Updates class belief based on softmax scores (uses string class names).
-    * `select_and_classify`: Orchestrates the model selection, execution, safety check, and exit logic for a single event (uses string class names).
-* **`main.py`**: The main script that:
-    * Loads configuration.
-    * Calls `data_utils` to load and split data.
-    * Calls `model_training` to train models.
-    * Calls `evaluation` to wrap models and get metrics/cost.
-    * Calls `nomad_strategy` functions to set up exit classes.
-    * Calculates initial class probabilities.
-    * Runs the event-by-event simulation using `select_and_classify`.
-    * Evaluates the overall NOMAD strategy performance against the test set and compares it to the role model baseline.
-    * Checks if the quality guarantee (epsilon-comparable recall) was met.
-* **`requirements.txt`**: Lists necessary Python packages.
+Features
+Dynamic Model Management:
 
-## Setup
+Add and remove scikit-learn based models directly from the UI.
 
-1.  **Clone the Repository (if applicable):**
-    ```bash
-    # git clone <repository_url>
-    cd nomad_project
-    ```
-2.  **Create a Virtual Environment (Recommended):**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    # On Windows use `venv\Scripts\activate`
-    ```
-3.  **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-4.  **Prepare Data:**
-    * Place your dataset (e.g., a CSV file) in the `data/` directory (or update the path in `config.py`).
-    * **Modify `nomad/data_utils.py`**: Adapt the `load_and_preprocess_data` function to correctly load, preprocess, and extract features (X) and integer labels (y\_int) from *your specific dataset format*. Ensure it also correctly identifies the list of unique string class names (`all_classes`). The current version includes a dummy data generator as a fallback.
+Define custom computational costs for each model.
 
-## Configuration
+Configure model hyperparameters.
 
-Adjust parameters in `nomad/config.py` before running:
+Upload custom model classes from external .py files.
 
-* **`DATA_FILEPATH`**: **(Required)** Set this to the correct path of your dataset relative to the `nomad_project` directory.
-* **`ROLE_MODEL_NAME`**: Set this to the key (e.g., 'M1', 'M2', 'M3') corresponding to the model you want to use as the high-quality benchmark in the `model_training.py` output dictionary.
-* **`EPSILON`**: Set the desired quality tolerance (e.g., `0.05` for 5%, `0.1` for 10%). Adjust this based on debugging or desired trade-off (you likely needed to increase this from the initial 0.05).
-* **`MODEL_SAVE_DIR`, `RESULTS_DIR`**: Change if you want to store models or results elsewhere.
-* **Model Hyperparameters**: Modify model parameters directly within `nomad/model_training.py`.
-* **Artificial Cost**: If needed for testing (e.g., if measured costs don't reflect expected hierarchy), you can enable and configure the artificial cost adjustment block within `main.py` (search for `# --- 4a. Artificially Adjust Role Model Cost ---`).
+Data-Driven Training & Evaluation:
 
-## Running the Simulation
+Upload your own CSV dataset to train and evaluate all candidate models.
 
-Execute the main script from the `nomad_project` directory:
+View baseline performance metrics (Accuracy, F1-Score, Cost) for each individual model.
 
-```bash
-python main.py
-```
+Interactive NOMAD Configuration:
 
-The script will perform all steps: data loading/splitting, training, evaluation, exit class determination, simulation, and final comparison.
+Select a "Role Model" to act as the gold standard for performance.
 
-## Understanding the Output
+Set an "Epsilon" (ε) tolerance to define the acceptable trade-off between accuracy and cost-savings.
 
-The script will print detailed logs for each step. Key sections at the end include:
+Choose between different chain safety algorithms to manage risk.
 
-### NOMAD Strategy Performance Evaluation:
+Advanced Workload Simulation:
 
-* Overall Accuracy.
-* Average Cost per Event (lower is better).
-* Average Chain Length per Event.
-* Per-Class Metrics (Recall, Precision, F1-Score).
-* Confusion Matrix for the NOMAD strategy's predictions.
-* Most Common Model Chains executed.
+Simulate a simple workload based on the test set split of your uploaded data.
 
-### Role Model Baseline Performance:
+Design complex, multi-stage workloads with varying class distributions to stress-test the system's adaptability.
 
-* Accuracy and Per-Class Recalls for the Role Model if run on every event.
-* Static Cost per Event for the Role Model.
+Live Results Visualization:
 
-### Quality Guarantee Check:
+Watch the simulation unfold with real-time charts powered by Chart.js.
 
-* Compares NOMAD's per-class recall against the `(1 - epsilon) * Role Model Recall` bound. Indicates if the strategy met the requirement for each class.
+Model Execution Frequency: See which models NOMAD chooses to use.
 
-### Cost Comparison:
+Cumulative Cost: Compare the operational cost of NOMAD against the Role Model.
 
-* Shows the average cost of NOMAD vs. the Role Model cost.
-* Estimates percentage cost savings.
+Accuracy Trend: Track NOMAD's live accuracy to ensure performance goals are met.
 
-## Customization and Extension
+Class Prior Distribution: Observe how the system adapts its internal beliefs about the incoming data.
 
-* **Adding/Changing Models:** Modify `nomad/model_training.py` to include different scikit-learn classifiers or load your own pre-trained models. Ensure they have `.fit()`, `.predict()`, and ideally `.predict_proba()` methods. Update the model dictionary keys and potentially `config.ROLE_MODEL_NAME`.
-* **Changing Cost Metric:** Modify the `cost` calculation within `nomad/evaluation.py`. You could use FLOPs, memory usage, or other relevant metrics instead of inference time.
-* **Relaxed Chain Safety:** Implement the "Relaxed Chain Safety Estimation" logic (using confusion matrices) from the paper in `nomad_strategy.py` as an alternative function (e.g., `check_chain_safety_relaxed`) and point to it in `main.py`.
-* **Different Quality Metric for EC:** Change `config.QUALITY_METRIC_FOR_EC` and update `determine_exit_classes` if needed to use precision, F1, etc., for defining Exit Classes.
-* **Data Source:** Modify `nomad/data_utils.py` to handle different data formats or sources.
+Comprehensive Final Summary:
 
-## Dependencies
+Get a detailed breakdown of the final accuracy, average cost, and confusion matrices for both the NOMAD strategy and the baseline Role Model.
 
-* Python 3.8+
-* NumPy
-* Pandas
-* Scikit-learn
+Tech Stack
+Backend: Python, Flask
 
-See `requirements.txt` for specific versions used during development.
+Frontend: HTML5, CSS3, JavaScript (ES6+)
 
-## License
+Machine Learning: Scikit-learn, Pandas, NumPy
 
-(Specify your license here, e.g., MIT, Apache 2.0, or leave blank if undecided)
+Visualization: Chart.js
 
-## Citation
+Getting Started
+Follow these instructions to set up and run the NOMAD Visualizer on your local machine.
 
-(If this code is based on a specific published paper, please add the citation details here.)
+Prerequisites
+Python 3.7+
+
+pip (Python package installer)
+
+Installation
+Clone the repository:
+
+git clone <your-repository-url>
+cd <repository-directory>
+
+Create a virtual environment (recommended):
+
+python -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+
+Install the required Python packages:
+The application relies on several libraries. Install them using the provided requirements.txt file.
+
+pip install -r requirements.txt
+
+(If a requirements.txt is not available, install them manually: pip install Flask pandas numpy scikit-learn)
+
+Running the Application
+Start the Flask server:
+
+python app.py
+
+Access the visualizer:
+Open your web browser and navigate to:
+http://127.0.0.1:5001
+
+Walkthrough
+Step 1: Manage Candidate Models
+This is your "garage" of available models.
+
+View Models: The table shows the default models, their type, parameters, and cost.
+
+Add a Model: Use the "Add New Model" form.
+
+Give it a Unique Name.
+
+Set its Cost. This is an abstract value representing its computational expense.
+
+Select a Model Type from the dropdown. Hyperparameter fields will appear dynamically.
+
+Fill in any desired parameters.
+
+Click Add Model.
+
+Add a Custom Model:
+
+Select -- Custom Model (from file) -- as the type.
+
+Enter the exact Python Class Name from your file.
+
+Choose the .py file containing your model. The model must have a scikit-learn-compatible API (i.e., it must have .fit(), .predict(), and preferably .predict_proba() methods).
+
+Remove a Model: Click the "Remove" button in the table.
+
+Step 2: Upload Data & Train
+Click "Choose File" and select a CSV file. The target variable (the class label) should be the second-to-last column.
+
+Click "Upload and Train".
+
+The system will train all models in your list and display the "Individual Model Performance" table, showing the baseline results.
+
+Step 3: Configure & Run the Simulation
+Once the models are trained, this section appears.
+
+Role Model: Select your best-performing (and likely most expensive) model from the dropdown. This is the benchmark NOMAD will be measured against.
+
+Epsilon (ε): Set your tolerance. A value of 0.05 means you're willing to accept an accuracy that is at most 5% worse than the Role Model's if it results in a cost saving.
+
+Workload Phases (Optional): To simulate specific scenarios, define one or more phases. For each, set the Duration (number of events) and the Target Class Distribution (the percentage of each class). If you leave this empty, the simulation will run on the test data split.
+
+Click "Run NOMAD Simulation".
+
+Step 4: Interpret the Results
+The live charts will update as the simulation runs. The key insights are:
+
+Is the Cumulative Cost of NOMAD significantly lower than the Role Model?
+
+Is the Accuracy Trend of NOMAD staying close to the Role Model's static accuracy line?
+
+How does the Model Execution Frequency change when the workload shifts between phases?
+
+When the simulation completes, the Final Summary provides a quantitative comparison of the two strategies.
+
+File Structure
+.
+├── app.py                  # Main Flask application, API endpoints, and state management.
+├── nomad_arima_backend.py  # Core NOMAD logic, model classes, and simulation engine.
+├── requirements.txt        # List of Python dependencies.
+├── static/
+│   ├── script.js           # Frontend JavaScript for interactivity, API calls, and charting.
+│   └── style.css           # CSS for styling the web interface.
+└── templates/
+    └── index.html          # The main HTML file for the user interface.
