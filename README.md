@@ -1,4 +1,4 @@
-# NOMAD: Adaptive Model Chaining Visualizer
+# NOMAD: Adaptive Model Chaining Visualizer (React Edition)
 
 ## Introduction
 
@@ -10,49 +10,21 @@ At its core, this tool simulates a smart system that dynamically selects the mos
 
 ---
 
-## The Problem It Solves
-
-In modern machine learning, there is an inherent conflict:
-
-* **High-Performance Models** (e.g., large ensembles, deep neural networks) are highly accurate but are computationally expensive, leading to high operational costs, energy consumption, and slower response times.
-* **Low-Cost Models** (e.g., shallow decision trees, linear models) are fast and cheap to run but often lack the accuracy required for critical tasks.
-
-A one-size-fits-all approach, where a single model is used for every task, is inefficient. It's like using a sledgehammer to crack a nut. The NOMAD strategy proposes a more intelligent alternative: an adaptive chain of models that can dynamically route tasks, ensuring that easy predictions are handled by cheap models and only the most difficult predictions are escalated to expensive ones.
-
----
-
 ## Features
 
-* **Dynamic Model Management:**
-    * Add and remove `scikit-learn` based models directly from the UI.
-    * Define custom computational costs for each model.
-    * Configure model hyperparameters.
-    * Upload custom model classes from external `.py` files.
-* **Data-Driven Training & Evaluation:**
-    * Upload your own CSV dataset to train and evaluate all candidate models.
-    * View baseline performance metrics (Accuracy, F1-Score, Cost) for each individual model.
-* **Interactive NOMAD Configuration:**
-    * Select a "Role Model" to act as the gold standard for performance.
-    * Set an "Epsilon" (ε) tolerance to define the acceptable trade-off between accuracy and cost-savings.
-    * Choose between different chain safety algorithms to manage risk.
-* **Advanced Workload Simulation:**
-    * Simulate a simple workload based on the test set split of your uploaded data.
-    * Design complex, multi-stage workloads with varying class distributions to stress-test the system's adaptability.
-* **Live Results Visualization:**
-    * Watch the simulation unfold with real-time charts powered by Chart.js.
-    * **Model Execution Frequency:** See which models NOMAD chooses to use.
-    * **Cumulative Cost:** Compare the operational cost of NOMAD against the Role Model.
-    * **Accuracy Trend:** Track NOMAD's live accuracy to ensure performance goals are met.
-    * **Class Prior Distribution:** Observe how the system adapts its internal beliefs about the incoming data.
-* **Comprehensive Final Summary:**
-    * Get a detailed breakdown of the final accuracy, average cost, and confusion matrices for both the NOMAD strategy and the baseline Role Model.
+* **Dynamic Model Management:** Add/remove `scikit-learn` models, define costs, configure hyperparameters, and upload custom model classes from `.py` files.
+* **Data-Driven Training & Evaluation:** Upload a CSV dataset to train and evaluate all candidate models and view their baseline performance.
+* **Interactive NOMAD Configuration:** Select a "Role Model" as a performance benchmark and set an "Epsilon" (ε) tolerance for cost-saving.
+* **Advanced Workload Simulation:** Design complex, multi-stage workloads with varying data distributions to stress-test the system's adaptability.
+* **Live Results Visualization:** Watch the simulation unfold with real-time charts for model execution frequency, cumulative cost, and accuracy.
+* **Comprehensive Final Summary:** Get a detailed breakdown of the final results comparing the NOMAD strategy to the baseline Role Model.
 
 ---
 
 ## Tech Stack
 
-* **Backend:** Python, Flask
-* **Frontend:** HTML5, CSS3, JavaScript (ES6+)
+* **Backend:** Python, Flask, Flask-CORS
+* **Frontend:** React, Vite, Tailwind CSS v4
 * **Machine Learning:** Scikit-learn, Pandas, NumPy
 * **Visualization:** Chart.js
 
@@ -60,44 +32,89 @@ A one-size-fits-all approach, where a single model is used for every task, is in
 
 ## Getting Started
 
-Follow these instructions to set up and run the NOMAD Visualizer on your local machine.
+This project has a separate backend and frontend. You will need to run both simultaneously.
 
 ### Prerequisites
 
-* Python 3.7+
-* `pip` (Python package installer)
+* Python 3.7+ and `pip`
+* Node.js v16+ and `npm`
 
-### Installation
+### 1. Backend Setup
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd <repository-directory>
-    ```
+1.  **Navigate to your project folder.**
 
-2.  **Create a virtual environment (recommended):**
+2.  **Create and activate a Python virtual environment:**
     ```bash
     python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
     ```
 
-3.  **Install the required Python packages:**
-    The application relies on several libraries. Install them using the provided `requirements.txt` file.
+3.  **Install Python dependencies:**
+    *(Create a `requirements.txt` file with `Flask`, `Flask-Cors`, `pandas`, `numpy`, `scikit-learn`)*
     ```bash
     pip install -r requirements.txt
     ```
-    *(If a `requirements.txt` is not available, install them manually: `pip install Flask pandas numpy scikit-learn`)*
 
-### Running the Application
-
-1.  **Start the Flask server:**
+4.  **Run the Flask backend server:**
     ```bash
     python app.py
     ```
+    The backend will be running at `http://127.0.0.1:5001`.
 
-2.  **Access the visualizer:**
-    Open your web browser and navigate to:
-    [**http://127.0.0.1:5001**](http://127.0.0.1:5001)
+### 2. Frontend Setup (with Vite and Tailwind CSS v4)
+
+This guide assumes you are starting a new React project with Vite, the recommended modern build tool.
+
+1.  **Open a new terminal window** and create a new Vite + React project:
+    ```bash
+    npm create vite@latest nomad-frontend -- --template react
+    cd nomad-frontend
+    ```
+
+2.  **Install all frontend dependencies in one command:**
+    ```bash
+    npm install && npm install -D tailwindcss @tailwindcss/vite react-chartjs-2 chart.js @heroicons/react
+    ```
+
+3.  **Create `tailwind.config.js`:** This file is still needed to tell Tailwind where to look for your classes. In the `nomad-frontend` root, create the file with this content:
+    ```javascript
+    /** @type {import('tailwindcss').Config} */
+    export default {
+      content: [
+        "./index.html",
+        "./src/**/*.{js,ts,jsx,tsx}",
+      ],
+      theme: {
+        extend: {},
+      },
+      plugins: [],
+    }
+    ```
+
+4.  **Configure the Vite Plugin:** Add the `@tailwindcss/vite` plugin to your `vite.config.js` file.
+    ```javascript
+    import { defineConfig } from 'vite'
+    import react from '@vitejs/plugin-react'
+    import tailwindcss from '@tailwindcss/vite'
+
+    // [https://vitejs.dev/config/](https://vitejs.dev/config/)
+    export default defineConfig({
+      plugins: [react(), tailwindcss()],
+    })
+    ```
+
+5.  **Import Tailwind's CSS:** Open your `./src/index.css` file, remove all existing content, and add the following line. Note that the old `@tailwind` directives are no longer used.
+    ```css
+    @import 'tailwindcss';
+    ```
+
+6.  **Replace the content of `src/App.jsx`** with the React component code provided for this project.
+
+7.  **Run the React development server:**
+    ```bash
+    npm run dev
+    ```
+    The frontend will open in your browser (usually at `http://localhost:5173`) and will automatically connect to the backend API running on port 5001.
 
 ---
 

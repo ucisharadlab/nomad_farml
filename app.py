@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, render_template, Response
+from flask_cors import CORS # Import CORS
 import os
 import uuid
 import pandas as pd
@@ -12,10 +13,14 @@ from nomad_arima_backend import (
     train_evaluate_individual_models_for_flask,
     run_nomad_simulation_for_flask_streamed,
     load_and_preprocess_data_for_flask,
-    get_classifier_from_config # New function to instantiate models
+    get_classifier_from_config
 )
 
 app = Flask(__name__)
+# Enable CORS for all routes, allowing requests from any origin.
+# For production, you might want to restrict this to your frontend's domain.
+CORS(app)
+
 # Configuration for file uploads
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['CUSTOM_MODELS_FOLDER'] = os.path.join(app.config['UPLOAD_FOLDER'], 'custom_models')
@@ -54,10 +59,11 @@ CANDIDATE_MODELS = {
 current_run_data = {}
 
 
-@app.route('/')
-def index():
-    """Serves the main HTML page."""
-    return render_template('index.html')
+# The old @app.route('/') is no longer needed as React will serve the UI.
+# You can keep it for testing the backend API directly if you wish.
+@app.route('/api/hello')
+def hello():
+    return jsonify({"message": "Backend is running!"})
 
 # --- API for Model Management ---
 
@@ -92,7 +98,6 @@ def remove_model(model_name):
     if model_name not in CANDIDATE_MODELS:
         return jsonify({"error": "Model not found."}), 404
     
-    # Check if the model has an associated file and remove it
     model_config = CANDIDATE_MODELS[model_name]
     if model_config.get('is_custom') and model_config.get('module_name'):
         module_path = os.path.join(app.config['CUSTOM_MODELS_FOLDER'], f"{model_config['module_name']}.py")
@@ -102,8 +107,7 @@ def remove_model(model_name):
                 app.logger.info(f"Removed custom model file: {module_path}")
             except Exception as e:
                 app.logger.error(f"Error removing custom model file {module_path}: {e}")
-                # Don't block removal of config even if file delete fails
-    
+
     del CANDIDATE_MODELS[model_name]
     app.logger.info(f"Removed model: {model_name}")
     return jsonify({"message": f"Model '{model_name}' removed."})
@@ -120,19 +124,17 @@ def upload_model_file():
         return jsonify({"error": "No selected file or class name provided"}), 400
 
     if file and file.filename.endswith('.py'):
-        # Create a unique name for the module to avoid conflicts
         module_name = f"custom_model_{uuid.uuid4().hex}"
         filename = f"{module_name}.py"
         filepath = os.path.join(app.config['CUSTOM_MODELS_FOLDER'], filename)
         
         try:
             file.save(filepath)
-            # Test if the module can be imported and the class exists
             spec = importlib.util.spec_from_file_location(module_name, filepath)
             custom_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(custom_module)
             if not hasattr(custom_module, class_name):
-                os.remove(filepath) # Clean up invalid file
+                os.remove(filepath)
                 raise AttributeError(f"Class '{class_name}' not found in '{file.filename}'.")
             
             app.logger.info(f"Custom model file '{file.filename}' uploaded and validated as '{filename}'.")
@@ -160,7 +162,6 @@ def upload_csv():
     if file.filename == '': return jsonify({"error": "No selected file"}), 400
 
     if file and file.filename.endswith('.csv'):
-        # Create a unique filename for the uploaded data
         safe_original_filename = secure_filename(file.filename)
         filename = f"{uuid.uuid4()}_{safe_original_filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -168,7 +169,6 @@ def upload_csv():
 
         current_run_data.clear()
 
-        # Preprocess the data
         data_df, X_df, y_enc_arr, _, unique_lab_enc, \
         cls_map_num_to_str, unique_cls_names_ord_str, preproc, x_col_names, \
         X_by_cls_str, y_by_cls_str, err_msg = load_and_preprocess_data_for_flask(filepath)
@@ -186,17 +186,15 @@ def upload_csv():
             'X_by_class_str_keys': X_by_cls_str, 'y_by_class_str_keys': y_by_cls_str
         })
 
-        # Train and evaluate the models from the dynamic configuration
         try:
-            # Pass the candidate model configs and the custom models path
             trained_mdls, mdl_summaries, X_tst, y_tst, y_trn = train_evaluate_individual_models_for_flask(
                 X_full=current_run_data['X_full'],
                 y_encoded_full=current_run_data['y_encoded_full'],
                 preprocessor=current_run_data['preprocessor_for_models'],
                 class_map_numeric_to_str=current_run_data['class_map_numeric_to_str'],
                 unique_enc_labels=current_run_data['unique_labels_encoded'],
-                candidate_configs_dict=CANDIDATE_MODELS, # Pass the dynamic dict
-                custom_models_path=app.config['CUSTOM_MODELS_FOLDER'] # Pass path
+                candidate_configs_dict=CANDIDATE_MODELS,
+                custom_models_path=app.config['CUSTOM_MODELS_FOLDER']
             )
         except Exception as e_train_eval:
             if os.path.exists(filepath): os.remove(filepath)
@@ -208,7 +206,6 @@ def upload_csv():
             'X_test_data_overall': X_tst, 'y_test_encoded_data_overall': y_tst
         })
         
-        # Calculate initial class priors from the training set
         initial_priors_dict_str_keys = {}
         if y_trn is not None and len(y_trn) > 0:
             unique_tr, counts_tr = np.unique(y_trn, return_counts=True)
@@ -216,7 +213,7 @@ def upload_csv():
             for num_lab_global in unique_lab_enc:
                 cls_name_str = cls_map_num_to_str.get(int(num_lab_global))
                 if cls_name_str: initial_priors_dict_str_keys[cls_name_str] = float(temp_priors_num.get(num_lab_global, 0.0))
-        else: # Fallback
+        else:
             num_classes = len(unique_cls_names_ord_str)
             initial_priors_dict_str_keys = {name: 1.0/num_classes for name in unique_cls_names_ord_str} if num_classes > 0 else {}
         current_run_data['initial_class_priors_str_keys'] = initial_priors_dict_str_keys
@@ -233,12 +230,10 @@ def upload_csv():
 @app.route('/api/nomad_event_stream', methods=['GET'])
 def nomad_event_stream_endpoint():
     """Endpoint to stream NOMAD simulation results."""
-    # Check if prerequisite data from a CSV upload exists
     if 'trained_models_dict' not in current_run_data:
         def err_gen(): yield f"data: {json.dumps({'type':'error','message':'Prerequisite data missing. Please upload a CSV file and train models first.'})}\n\n"
         return Response(err_gen(), mimetype='text/event-stream')
 
-    # Extract query parameters for the simulation
     try:
         role_model_name = request.args.get('role_model_name')
         workload_phases_json = request.args.get('workload_phases', '[]')
@@ -260,7 +255,6 @@ def nomad_event_stream_endpoint():
     def generate_updates():
         """Generator function to run the simulation and yield updates."""
         try:
-            # The CANDIDATE_MODELS dict is now the source of truth for model configs
             for update in run_nomad_simulation_for_flask_streamed(
                 current_run_data['trained_models_dict'], role_model_name, epsilon,
                 current_run_data['initial_class_priors_str_keys'],
@@ -285,5 +279,5 @@ def nomad_event_stream_endpoint():
 
 
 if __name__ == '__main__':
+    # Make sure to install Flask-Cors: pip install Flask-Cors
     app.run(debug=True, port=5001, threaded=True)
-
