@@ -84,9 +84,32 @@
             });
         }
 
+	function reset_dropdowns() {
+            document.addEventListener('click', function(event) {
+  		// Get all select elements on the page
+  		const dropdowns = document.querySelectorAll('select');
+
+  		// Loop through each dropdown and reset its selected option
+  		dropdowns.forEach(function(dropdown) {
+    			// Find the default option (the one with the 'selected' attribute)
+    			const defaultOption = dropdown.querySelector('option[selected]');
+
+    			// If a default option is found, set the dropdown's value to it
+    			if (defaultOption) {
+      				dropdown.value = defaultOption.value;
+    			} else {
+      				// If no default option is explicitly set,
+      				// you can set the selectedIndex to 0 to select the first option
+      				dropdown.selectedIndex = 0; // This will select the first option
+    			}
+  		});
+	    });
+	}
+
 	choose_action('LoadOrig', '/get_orig_data');
 	choose_action('LoadProc', '/get_proc_data');
 	choose_action('modelSelect', '/get_all', true);
+	reset_dropdowns()
 	choose_action('methodSelect', '/get_all', true);
 	choose_action('attackView', '/get_all', true);
 	choose_action('adtrainView', '/get_all', true);
