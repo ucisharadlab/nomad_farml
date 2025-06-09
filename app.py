@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, Response
+from flask import Flask, request, jsonify, render_template, Response, url_for
 from flask_cors import CORS # Import CORS
 import os
 import uuid
@@ -17,117 +17,67 @@ from nomad_arima_backend import (
 )
 
 app = Flask(__name__)
-# Enable CORS for all routes, allowing requests from any origin.
-# For production, you might want to restrict this to your frontend's domain.
 CORS(app)
 
 # Configuration for file uploads
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['CUSTOM_MODELS_FOLDER'] = os.path.join(app.config['UPLOAD_FOLDER'], 'custom_models')
+# Configuration for the cascade result images
+app.config['RESULT_FOLDER'] = os.path.join('static', 'cascade_result')
+
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['CUSTOM_MODELS_FOLDER'], exist_ok=True)
+os.makedirs(app.config['RESULT_FOLDER'], exist_ok=True) # Ensure this folder exists
 
 # --- Global State Management ---
-# In a real multi-user app, this would be in a database or user session.
-# For this visualizer, a global dict is sufficient.
-
-# Initial default models
 CANDIDATE_MODELS = {
-    "Dummy (Uniform)": {
-        "name": "Dummy (Uniform)",
-        "type": "DummyClassifier",
-        "params": {"strategy": "uniform"},
-        "cost": 0.1,
-        "is_custom": False
-    },
-    "Decision Tree (Shallow)": {
-        "name": "Decision Tree (Shallow)",
-        "type": "DecisionTreeClassifier",
-        "params": {"max_depth": 3, "random_state": 42},
-        "cost": 1.0,
-        "is_custom": False
-    },
-    "Random Forest (Small)": {
-        "name": "Random Forest (Small)",
-        "type": "RandomForestClassifier",
-        "params": {"n_estimators": 50, "max_depth": 10, "random_state": 42},
-        "cost": 25.0,
-        "is_custom": False
-    }
+    "Dummy (Uniform)": {"name": "Dummy (Uniform)", "type": "DummyClassifier", "params": {"strategy": "uniform"}, "cost": 0.1, "is_custom": False},
+    "Decision Tree (Shallow)": {"name": "Decision Tree (Shallow)", "type": "DecisionTreeClassifier", "params": {"max_depth": 3, "random_state": 42}, "cost": 1.0, "is_custom": False},
+    "Random Forest (Small)": {"name": "Random Forest (Small)", "type": "RandomForestClassifier", "params": {"n_estimators": 50, "max_depth": 10, "random_state": 42}, "cost": 25.0, "is_custom": False}
 }
-# This dictionary will store data for the current CSV run
 current_run_data = {}
 
-
-# The old @app.route('/') is no longer needed as React will serve the UI.
-# You can keep it for testing the backend API directly if you wish.
+# --- API Endpoints ---
 @app.route('/api/hello')
 def hello():
     return jsonify({"message": "Backend is running!"})
 
-# --- API for Model Management ---
-
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    """Returns the current list of candidate models."""
     return jsonify(list(CANDIDATE_MODELS.values()))
 
 @app.route('/api/models', methods=['POST'])
 def add_model():
-    """Adds a new model configuration to the candidate list."""
     data = request.json
     model_name = data.get('name')
     if not model_name or model_name in CANDIDATE_MODELS:
         return jsonify({"error": "Model name is missing or already exists."}), 400
     
     CANDIDATE_MODELS[model_name] = {
-        "name": model_name,
-        "type": data.get('type'),
-        "params": data.get('params', {}),
-        "cost": data.get('cost', 1.0),
-        "is_custom": data.get('is_custom', False),
-        "module_name": data.get('module_name'), # For custom models
-        "class_name": data.get('class_name') # For custom models
+        "name": model_name, "type": data.get('type'), "params": data.get('params', {}),
+        "cost": data.get('cost', 1.0), "is_custom": data.get('is_custom', False),
+        "module_name": data.get('module_name'), "class_name": data.get('class_name')
     }
-    app.logger.info(f"Added model: {model_name}")
     return jsonify({"message": f"Model '{model_name}' added successfully."}), 201
 
 @app.route('/api/models/<string:model_name>', methods=['DELETE'])
 def remove_model(model_name):
-    """Removes a model from the candidate list."""
     if model_name not in CANDIDATE_MODELS:
         return jsonify({"error": "Model not found."}), 404
-    
-    model_config = CANDIDATE_MODELS[model_name]
-    if model_config.get('is_custom') and model_config.get('module_name'):
-        module_path = os.path.join(app.config['CUSTOM_MODELS_FOLDER'], f"{model_config['module_name']}.py")
-        if os.path.exists(module_path):
-            try:
-                os.remove(module_path)
-                app.logger.info(f"Removed custom model file: {module_path}")
-            except Exception as e:
-                app.logger.error(f"Error removing custom model file {module_path}: {e}")
-
     del CANDIDATE_MODELS[model_name]
-    app.logger.info(f"Removed model: {model_name}")
     return jsonify({"message": f"Model '{model_name}' removed."})
 
 @app.route('/api/upload_model_file', methods=['POST'])
 def upload_model_file():
-    """Handles the upload of a custom Python model file."""
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
+    if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
     file = request.files['file']
     class_name = request.form.get('className')
-
     if file.filename == '' or not class_name:
         return jsonify({"error": "No selected file or class name provided"}), 400
 
     if file and file.filename.endswith('.py'):
         module_name = f"custom_model_{uuid.uuid4().hex}"
-        filename = f"{module_name}.py"
-        filepath = os.path.join(app.config['CUSTOM_MODELS_FOLDER'], filename)
-        
+        filepath = os.path.join(app.config['CUSTOM_MODELS_FOLDER'], f"{module_name}.py")
         try:
             file.save(filepath)
             spec = importlib.util.spec_from_file_location(module_name, filepath)
@@ -135,46 +85,30 @@ def upload_model_file():
             spec.loader.exec_module(custom_module)
             if not hasattr(custom_module, class_name):
                 os.remove(filepath)
-                raise AttributeError(f"Class '{class_name}' not found in '{file.filename}'.")
-            
-            app.logger.info(f"Custom model file '{file.filename}' uploaded and validated as '{filename}'.")
-            return jsonify({
-                "message": "Custom model uploaded successfully.",
-                "module_name": module_name,
-                "class_name": class_name
-            }), 201
+                raise AttributeError(f"Class '{class_name}' not found.")
+            return jsonify({"message": "Custom model uploaded.", "module_name": module_name, "class_name": class_name}), 201
         except Exception as e:
-            app.logger.error(f"Failed to upload or validate custom model: {e}")
-            if os.path.exists(filepath):
-                os.remove(filepath)
+            if os.path.exists(filepath): os.remove(filepath)
             return jsonify({"error": str(e)}), 500
-    
-    return jsonify({"error": "Invalid file type, please upload a .py file."}), 400
-
-
-# --- API for Main Application Logic ---
+    return jsonify({"error": "Invalid file type."}), 400
 
 @app.route('/api/upload_csv', methods=['POST'])
 def upload_csv():
-    """Handles CSV upload, data preprocessing, and initial model training."""
     if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
     file = request.files['file']
     if file.filename == '': return jsonify({"error": "No selected file"}), 400
 
     if file and file.filename.endswith('.csv'):
-        safe_original_filename = secure_filename(file.filename)
-        filename = f"{uuid.uuid4()}_{safe_original_filename}"
+        filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
         current_run_data.clear()
-
-        data_df, X_df, y_enc_arr, _, unique_lab_enc, \
-        cls_map_num_to_str, unique_cls_names_ord_str, preproc, x_col_names, \
-        X_by_cls_str, y_by_cls_str, err_msg = load_and_preprocess_data_for_flask(filepath)
+        data_df, X_df, y_enc_arr, _, unique_lab_enc, cls_map_num_to_str, \
+        unique_cls_names_ord_str, preproc, x_col_names, X_by_cls_str, \
+        y_by_cls_str, err_msg = load_and_preprocess_data_for_flask(filepath)
 
         if err_msg:
-            if os.path.exists(filepath): os.remove(filepath)
             return jsonify({"error": err_msg}), 400
 
         current_run_data.update({
@@ -182,102 +116,118 @@ def upload_csv():
             'class_map_numeric_to_str': cls_map_num_to_str,
             'unique_class_names_ordered_str': unique_cls_names_ord_str,
             'unique_labels_encoded': unique_lab_enc.tolist(),
-            'preprocessor_for_models': preproc,
-            'X_by_class_str_keys': X_by_cls_str, 'y_by_class_str_keys': y_by_cls_str
+            'preprocessor_for_models': preproc, 'X_by_class_str_keys': X_by_cls_str,
+            'y_by_class_str_keys': y_by_cls_str
         })
 
         try:
             trained_mdls, mdl_summaries, X_tst, y_tst, y_trn = train_evaluate_individual_models_for_flask(
-                X_full=current_run_data['X_full'],
-                y_encoded_full=current_run_data['y_encoded_full'],
-                preprocessor=current_run_data['preprocessor_for_models'],
-                class_map_numeric_to_str=current_run_data['class_map_numeric_to_str'],
-                unique_enc_labels=current_run_data['unique_labels_encoded'],
-                candidate_configs_dict=CANDIDATE_MODELS,
-                custom_models_path=app.config['CUSTOM_MODELS_FOLDER']
+                current_run_data['X_full'], current_run_data['y_encoded_full'], current_run_data['preprocessor_for_models'],
+                current_run_data['class_map_numeric_to_str'], current_run_data['unique_labels_encoded'],
+                CANDIDATE_MODELS, app.config['CUSTOM_MODELS_FOLDER']
             )
-        except Exception as e_train_eval:
-            if os.path.exists(filepath): os.remove(filepath)
-            app.logger.error(f"Error during model training: {e_train_eval}", exc_info=True)
-            return jsonify({"error": f"An unexpected error occurred during model training: {str(e_train_eval)}"}), 500
+        except Exception as e:
+            return jsonify({"error": f"Model training error: {str(e)}"}), 500
 
-        current_run_data.update({
-            'trained_models_dict': trained_mdls,
-            'X_test_data_overall': X_tst, 'y_test_encoded_data_overall': y_tst
-        })
+        current_run_data.update({'trained_models_dict': trained_mdls, 'X_test_data_overall': X_tst, 'y_test_encoded_data_overall': y_tst})
         
-        initial_priors_dict_str_keys = {}
+        initial_priors = {name: 1.0/len(unique_cls_names_ord_str) for name in unique_cls_names_ord_str} if unique_cls_names_ord_str else {}
         if y_trn is not None and len(y_trn) > 0:
-            unique_tr, counts_tr = np.unique(y_trn, return_counts=True)
-            temp_priors_num = {cls_num: count/len(y_trn) for cls_num, count in zip(unique_tr, counts_tr)}
-            for num_lab_global in unique_lab_enc:
-                cls_name_str = cls_map_num_to_str.get(int(num_lab_global))
-                if cls_name_str: initial_priors_dict_str_keys[cls_name_str] = float(temp_priors_num.get(num_lab_global, 0.0))
-        else:
-            num_classes = len(unique_cls_names_ord_str)
-            initial_priors_dict_str_keys = {name: 1.0/num_classes for name in unique_cls_names_ord_str} if num_classes > 0 else {}
-        current_run_data['initial_class_priors_str_keys'] = initial_priors_dict_str_keys
+            unique, counts = np.unique(y_trn, return_counts=True)
+            priors_num = dict(zip(unique, counts/len(y_trn)))
+            for num, name in cls_map_num_to_str.items():
+                initial_priors[name] = float(priors_num.get(num, 0.0))
+        current_run_data['initial_class_priors_str_keys'] = initial_priors
+        
+        # Add data summary to response
+        data_head_json = data_df.head().to_json(orient='split') if not data_df.empty else None
 
         return jsonify({
-            "message": "File uploaded and base models trained.", "filename": os.path.basename(filepath),
-            "classes_str": unique_cls_names_ord_str, "model_summaries": mdl_summaries,
-            "initial_priors_str_keys": initial_priors_dict_str_keys,
-            "candidate_model_names": list(CANDIDATE_MODELS.keys())
+            "message": "File uploaded and models trained.", "classes_str": unique_cls_names_ord_str,
+            "model_summaries": mdl_summaries, "initial_priors_str_keys": initial_priors,
+            "candidate_model_names": list(CANDIDATE_MODELS.keys()),
+            "num_features": len(x_col_names), "data_head": data_head_json
         }), 200
+    return jsonify({"error": "Invalid file type."}), 400
 
-    return jsonify({"error": "Invalid file type, please upload a CSV."}), 400
+@app.route('/api/visualizations', methods=['GET'])
+def get_all_visuals():
+    """
+    Returns a list of image URLs based on the selected option.
+    Mirrors the logic from the user-provided `/get_all` endpoint.
+    """
+    selected_value = request.args.get('selected')
+    if not selected_value:
+        return jsonify({"error": "No selection provided."}), 400
+
+    # This mapping replaces the long if/elif chain
+    VISUALIZATION_MAP = {
+        'model_option1': ['decision_tree.png'],
+        'model_option2': ['decision_tree_0.png'],
+        'model_option3': ['decision_tree_2.png'],
+        'model_option4': ['decision_tree_3.png'],
+        'model_option5': ['decision_tree_4.png'],
+        'test_method_option1': ['acc_f1.png', 'nodes.png'],
+        'test_method_option2': ['pred_path_anim.gif'],
+        'attack_option1': ['feature_corr.png'],
+        'attack_option2': ['atk_acc_f1.png'],
+        'adtrain_option1': ['adtrain_acc_f1.png', 'adtrain_atk_acc_f1.png'],
+        'adtrain_option2': ['boundary_anim.gif']
+    }
+
+    image_files = VISUALIZATION_MAP.get(selected_value, [])
+    
+    # Generate full URLs for the frontend
+    # Assumes images are in `static/cascade_result/`
+    image_urls = [url_for('static', filename=f'cascade_result/{img}') for img in image_files]
+
+    return jsonify({"plots": image_urls})
+
 
 @app.route('/api/nomad_event_stream', methods=['GET'])
 def nomad_event_stream_endpoint():
-    """Endpoint to stream NOMAD simulation results."""
     if 'trained_models_dict' not in current_run_data:
-        def err_gen(): yield f"data: {json.dumps({'type':'error','message':'Prerequisite data missing. Please upload a CSV file and train models first.'})}\n\n"
+        def err_gen(): yield f"data: {json.dumps({'type':'error','message':'Prerequisite data missing.'})}\n\n"
+        return Response(err_gen(), mimetype='text/event-stream')
+    
+    try:
+        config = {
+            "role_model_name": request.args.get('role_model_name'),
+            "epsilon": float(request.args.get('epsilon', 0.05)),
+            "quality_metric_for_ec": request.args.get('quality_metric_for_ec', 'f1-score'),
+            "safety_check_type": request.args.get('safety_check_type', 'conservative'),
+            "batch_size": int(request.args.get('batch_size', 10)),
+            "adaptive_update_window": int(request.args.get('adaptive_update_window', 100)),
+            "adaptive_beta": float(request.args.get('adaptive_beta', 0.3)),
+            "workload_phases": json.loads(request.args.get('workload_phases', '[]'))
+        }
+    except (ValueError, json.JSONDecodeError) as e:
+        def err_gen(): yield f"data: {json.dumps({'type':'error','message':f'Invalid params: {e}'})}\n\n"
         return Response(err_gen(), mimetype='text/event-stream')
 
-    try:
-        role_model_name = request.args.get('role_model_name')
-        workload_phases_json = request.args.get('workload_phases', '[]')
-        workload_phases = json.loads(workload_phases_json)
-        epsilon = float(request.args.get('epsilon', 0.05))
-        batch_size = int(request.args.get('batch_size', 10))
-        adaptive_window = int(request.args.get('adaptive_update_window', 100))
-        adaptive_beta = float(request.args.get('adaptive_beta', 0.3))
-        quality_metric_ec = request.args.get('quality_metric_for_ec', 'f1-score')
-        safety_check = request.args.get('safety_check_type', 'conservative')
-    except (ValueError, json.JSONDecodeError) as e:
-         def err_gen(): yield f"data: {json.dumps({'type':'error','message':f'Invalid NOMAD parameters: {e}'})}\n\n"
-         return Response(err_gen(), mimetype='text/event-stream')
-
-    if not role_model_name or role_model_name not in current_run_data.get('trained_models_dict', {}):
-        def err_gen(): yield f"data: {json.dumps({'type':'error','message':f'Role model {role_model_name} is invalid or not trained.'})}\n\n"
+    if not config["role_model_name"] or config["role_model_name"] not in current_run_data['trained_models_dict']:
+        def err_gen(): yield f"data: {json.dumps({'type':'error','message':'Invalid role model.'})}\n\n"
         return Response(err_gen(), mimetype='text/event-stream')
 
     def generate_updates():
-        """Generator function to run the simulation and yield updates."""
         try:
             for update in run_nomad_simulation_for_flask_streamed(
-                current_run_data['trained_models_dict'], role_model_name, epsilon,
-                current_run_data['initial_class_priors_str_keys'],
-                current_run_data['unique_class_names_ordered_str'],
-                current_run_data['class_map_numeric_to_str'], quality_metric_ec,
-                safety_check, current_run_data['X_test_data_overall'],
-                current_run_data['y_test_encoded_data_overall'],
+                current_run_data['trained_models_dict'], config["role_model_name"], config["epsilon"],
+                current_run_data['initial_class_priors_str_keys'], current_run_data['unique_class_names_ordered_str'],
+                current_run_data['class_map_numeric_to_str'], config["quality_metric_for_ec"], config["safety_check_type"],
+                current_run_data['X_test_data_overall'], current_run_data['y_test_encoded_data_overall'],
                 CANDIDATE_MODELS, current_run_data['X_column_names'],
-                batch_size=batch_size, adaptive_update_window=adaptive_window,
-                adaptive_beta=adaptive_beta,
-                workload_phases=workload_phases,
-                X_by_class_str_keys=current_run_data['X_by_class_str_keys'],
-                y_by_class_str_keys=current_run_data['y_by_class_str_keys']
+                batch_size=config["batch_size"], adaptive_update_window=config["adaptive_update_window"],
+                adaptive_beta=config["adaptive_beta"], workload_phases=config["workload_phases"],
+                X_by_class_str_keys=current_run_data['X_by_class_str_keys'], y_by_class_str_keys=current_run_data['y_by_class_str_keys']
             ):
                 yield f"data: {json.dumps(update)}\n\n"
-        except Exception as e_stream:
-            tb_str = traceback.format_exc()
-            app.logger.error(f"STREAMING ERROR: {str(e_stream)}\n{tb_str}")
-            yield f"data: {json.dumps({'type':'error','message':f'Simulation error: {str(e_stream)}'})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error','message':f'Sim error: {str(e)}'})}\n\n"
             
     return Response(generate_updates(), mimetype='text/event-stream')
 
 
 if __name__ == '__main__':
-    # Make sure to install Flask-Cors: pip install Flask-Cors
     app.run(debug=True, port=5001, threaded=True)
+
