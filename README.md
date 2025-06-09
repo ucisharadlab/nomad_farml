@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The NOMAD (Non-Monotonic Adaptive Deployment) Visualizer is an interactive web application designed to demonstrate and analyze a powerful strategy for optimizing machine learning model deployments. It provides a "what-if" engine to explore the trade-offs between a model's computational **cost** and its predictive **accuracy**.
+The FARML) Visualizer is an interactive web application designed to demonstrate and analyze a powerful strategy for optimizing machine learning model deployments. It provides a "what-if" engine to explore the trade-offs between a model's computational **cost** and its predictive **accuracy**.
 
 At its core, this tool simulates a smart system that dynamically selects the most efficient ML model from a pool of candidates for each individual task, aiming to achieve the highest possible accuracy for the lowest possible cost.
 
