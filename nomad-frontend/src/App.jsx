@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
-import { ArrowUpTrayIcon, TrashIcon, PlusIcon, PlayIcon, InformationCircleIcon, SparklesIcon, ArrowPathIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { ArrowUpTrayIcon, TrashIcon, PlusIcon, PlayIcon, InformationCircleIcon, SparklesIcon, ArrowPathIcon, EyeIcon, ChevronDownIcon, ChevronUpIcon, ServerStackIcon, CpuChipIcon, ShareIcon } from '@heroicons/react/24/outline';
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend);
@@ -493,6 +493,125 @@ const FinalSummary = ({ summaryData, classNames }) => {
     return (<Section title="Final Summary" step="6"><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><MetricBox title="NOMAD Performance" metrics={nomad_overall_metrics} /><MetricBox title={`${role_model_performance.name} (Role Model)`} metrics={role_model_performance} /></div><div className="mt-8"><ConfusionMatrix title="NOMAD Confusion Matrix" cmData={nomad_overall_metrics.cm} /><ConfusionMatrix title="Role Model Confusion Matrix" cmData={role_model_performance.cm} /></div></Section>);
 };
 
+const FarmLVisualizer = () => {
+    const [activeView, setActiveView] = useState(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
+    const droneDataOutput = [ { drone: 0, data: [ { attack: 'Benign', train: 0, test: 60 }, { attack: 'Port Scan', train: 0, test: 68 }, { attack: 'ICMP Flood', train: 11, test: 0 }, { attack: 'Ping Sweep', train: 0, test: 72 }, { attack: 'Vulnerability Scan', train: 270, test: 0 }, { attack: 'OS Scan', train: 20, test: 0 }, { attack: 'DNS Flood', train: 0, test: 0 }, { attack: 'Slowloris', train: 13, test: 4 }, { attack: 'Dictionary Attack', train: 0, test: 419 }, { attack: 'UDP Flood', train: 0, test: 6 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 314, test: 629 } }, { drone: 1, data: [ { attack: 'Benign', train: 0, test: 0 }, { attack: 'Port Scan', train: 0, test: 0 }, { attack: 'ICMP Flood', train: 0, test: 85 }, { attack: 'Ping Sweep', train: 5603, test: 1 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 0, test: 0 }, { attack: 'DNS Flood', train: 5, test: 0 }, { attack: 'Slowloris', train: 7, test: 100 }, { attack: 'Dictionary Attack', train: 241, test: 34 }, { attack: 'UDP Flood', train: 0, test: 2 }, { attack: 'SYN Flood', train: 0, test: 6 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 5956, test: 228 } }, { drone: 2, data: [ { attack: 'Benign', train: 198, test: 0 }, { attack: 'Port Scan', train: 0, test: 0 }, { attack: 'ICMP Flood', train: 0, test: 0 }, { attack: 'Ping Sweep', train: 0, test: 0 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 0, test: 3 }, { attack: 'DNS Flood', train: 3, test: 5415 }, { attack: 'Slowloris', train: 24056, test: 0 }, { attack: 'Dictionary Attack', train: 0, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 24257, test: 5418 } }, { drone: 3, data: [ { attack: 'Benign', train: 5117, test: 0 }, { attack: 'Port Scan', train: 0, test: 0 }, { attack: 'ICMP Flood', train: 1, test: 0 }, { attack: 'Ping Sweep', train: 1373, test: 3 }, { attack: 'Vulnerability Scan', train: 36, test: 7 }, { attack: 'OS Scan', train: 1697, test: 1210 }, { attack: 'DNS Flood', train: 0, test: 5259 }, { attack: 'Slowloris', train: 0, test: 0 }, { attack: 'Dictionary Attack', train: 0, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 8224, test: 6479 } }, { drone: 4, data: [ { attack: 'Benign', train: 6072, test: 0 }, { attack: 'Port Scan', train: 70, test: 0 }, { attack: 'ICMP Flood', train: 1, test: 2 }, { attack: 'Ping Sweep', train: 0, test: 8 }, { attack: 'Vulnerability Scan', train: 98, test: 693 }, { attack: 'OS Scan', train: 0, test: 522 }, { attack: 'DNS Flood', train: 0, test: 44 }, { attack: 'Slowloris', train: 8, test: 0 }, { attack: 'Dictionary Attack', train: 172, test: 0 }, { attack: 'UDP Flood', train: 0, test: 9 }, { attack: 'SYN Flood', train: 22, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6443, test: 1278 } }, { drone: 5, data: [ { attack: 'Benign', train: 1, test: 0 }, { attack: 'Port Scan', train: 271, test: 658 }, { attack: 'ICMP Flood', train: 334, test: 67 }, { attack: 'Ping Sweep', train: 0, test: 685 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 164, test: 0 }, { attack: 'DNS Flood', train: 8, test: 31 }, { attack: 'Slowloris', train: 0, test: 224 }, { attack: 'Dictionary Attack', train: 4, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 0, test: 25 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 782, test: 1690 } }, { drone: 6, data: [ { attack: 'Benign', train: 23, test: 0 }, { attack: 'Port Scan', train: 2318, test: 141 }, { attack: 'ICMP Flood', train: 0, test: 0 }, { attack: 'Ping Sweep', train: 223, test: 3940 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 1860, test: 0 }, { attack: 'DNS Flood', train: 0, test: 0 }, { attack: 'Slowloris', train: 0, test: 0 }, { attack: 'Dictionary Attack', train: 555, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 4, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 4983, test: 4081 } }, { drone: 7, data: [ { attack: 'Benign', train: 1998, test: 0 }, { attack: 'Port Scan', train: 8, test: 0 }, { attack: 'ICMP Flood', train: 2, test: 0 }, { attack: 'Ping Sweep', train: 2162, test: 777 }, { attack: 'Vulnerability Scan', train: 22, test: 37 }, { attack: 'OS Scan', train: 0, test: 0 }, { attack: 'DNS Flood', train: 0, test: 0 }, { attack: 'Slowloris', train: 138, test: 8 }, { attack: 'Dictionary Attack', train: 82, test: 0 }, { attack: 'UDP Flood', train: 37, test: 0 }, { attack: 'SYN Flood', train: 1691, test: 932 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6140, test: 1754 } }, { drone: 8, data: [ { attack: 'Benign', train: 5186, test: 0 }, { attack: 'Port Scan', train: 0, test: 277 }, { attack: 'ICMP Flood', train: 13, test: 1 }, { attack: 'Ping Sweep', train: 60, test: 0 }, { attack: 'Vulnerability Scan', train: 19, test: 177 }, { attack: 'OS Scan', train: 0, test: 17 }, { attack: 'DNS Flood', train: 858, test: 2 }, { attack: 'Slowloris', train: 621, test: 2 }, { attack: 'Dictionary Attack', train: 0, test: 0 }, { attack: 'UDP Flood', train: 0, test: 2 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6757, test: 478 } }, { drone: 9, data: [ { attack: 'Benign', train: 123, test: 7962 }, { attack: 'Port Scan', train: 1, test: 0 }, { attack: 'ICMP Flood', train: 1, test: 0 }, { attack: 'Ping Sweep', train: 3382, test: 0 }, { attack: 'Vulnerability Scan', train: 1688, test: 0 }, { attack: 'OS Scan', train: 345, test: 0 }, { attack: 'DNS Flood', train: 157, test: 0 }, { attack: 'Slowloris', train: 0, test: 0 }, { attack: 'Dictionary Attack', train: 6, test: 0 }, { attack: 'UDP Flood', train: 8, test: 0 }, { attack: 'SYN Flood', train: 529, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6240, test: 7962 } } ];
+
+    const handleButtonClick = (viewName, loadingMessage, successMessage) => {
+        const nextView = activeView === viewName ? null : viewName;
+        setActiveView(nextView);
+
+        if (nextView && loadingMessage) {
+            setIsLoading(true);
+            setStatusMessage(loadingMessage);
+            setTimeout(() => {
+                setStatusMessage(successMessage);
+                setIsLoading(false);
+            }, 1500);
+        } else {
+            setStatusMessage('');
+        }
+    };
+    
+    return (
+        <Section title="FARML - Self-Supervised Federated Learning" step="7">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div>
+                    <label className="font-semibold text-gray-700 block mb-1">Select Dataset</label>
+                    <Select defaultValue="ACI IoT dataset 2023"><option>ACI IoT dataset 2023</option><option>UNSW dataset</option></Select>
+                </div>
+                 <div>
+                    <label className="font-semibold text-gray-700 block mb-1">Number of Drones</label>
+                    <Select defaultValue="10">{[...Array(10)].map((_, i) => (<option key={i+1}>{i+1}</option>))}</Select>
+                </div>
+                 <div>
+                    <label className="font-semibold text-gray-700 block mb-1">Data Distribution</label>
+                    <Select defaultValue="Low"><option>High</option><option>Medium</option><option>Low</option></Select>
+                </div>
+            </div>
+
+            <div className="flex flex-wrap gap-4 items-center">
+                <Button onClick={() => handleButtonClick('data', 'Preparing data...', 'Data preparation complete.')} disabled={isLoading} icon={ServerStackIcon}>{isLoading && activeView ==='data' ? 'Processing...' : 'Prepare Data'}</Button>
+                <Button onClick={() => handleButtonClick('import', 'Importing model...', 'Model imported successfully.')} disabled={isLoading} icon={ArrowUpTrayIcon} className="bg-indigo-600 hover:bg-indigo-700">{isLoading && activeView === 'import' ? 'Importing...' : 'Import Model'}</Button>
+                <Button onClick={() => handleButtonClick('architecture')} icon={CpuChipIcon} className="bg-gray-600 hover:bg-gray-700">{activeView === 'architecture' ? 'Hide' : 'Show'} Architecture</Button>
+            </div>
+            
+            {statusMessage && <StatusMessage message={statusMessage} type="info" />}
+            
+            {activeView === 'data' && <DroneDataTable droneData={droneDataOutput} />}
+            
+            {activeView === 'import' && (
+                <div className="mt-6">
+                    <h4 className="text-lg font-semibold text-gray-700">Performance Metrics</h4>
+                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+                        <div>
+                          <img src="/federated-chart.png" alt="Federated Learning Comparison" className="w-full rounded-lg shadow-md" />
+                           <p className="text-center text-sm text-gray-600 mt-2"><strong>Caption:</strong> ClusterFed converges efficiently with low communication overhead.</p>
+                        </div>
+                        <div>
+                           <img src="/comm_cost.png" alt="Communication Cost" className="w-full rounded-lg shadow-md" />
+                           <p className="text-center text-sm text-gray-600 mt-2"><strong>Caption:</strong> Communication cost analysis across different methods.</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {activeView === 'architecture' && (
+                 <div className="mt-6">
+                    <h4 className="text-lg font-semibold text-gray-700">System Architecture</h4>
+                     <img src="/architecture-diagram.png" alt="System Architecture" className="w-full rounded-lg shadow-md mt-4" />
+                </div>
+            )}
+        </Section>
+    );
+};
+
+const DroneDataTable = ({ droneData }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const dataToShow = isExpanded ? droneData : droneData.slice(0, 3);
+    
+    return (
+        <div className="mt-6">
+            <div className="flex justify-between items-center mb-4">
+                <h4 className="text-lg font-semibold text-gray-700">Data Distribution Across Drones</h4>
+                <button onClick={() => setIsExpanded(!isExpanded)} className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                    {isExpanded ? <ChevronUpIcon className="h-4 w-4" /> : <ChevronDownIcon className="h-4 w-4" />}
+                    {isExpanded ? 'Collapse' : 'Expand All'}
+                </button>
+            </div>
+            <div className="space-y-6">
+            {dataToShow.map(drone => (
+                <div key={drone.drone}>
+                    <h5 className="font-bold text-gray-600 mb-2">Drone {drone.drone}</h5>
+                    <div className="overflow-x-auto bg-white rounded-lg shadow">
+                         <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3">Attack Type</th>
+                                    <th className="px-6 py-3">Train Samples</th>
+                                    <th className="px-6 py-3">Test Samples</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {drone.data.map((item) => (
+                                    <tr key={item.attack} className="bg-white border-b hover:bg-gray-50">
+                                        <td className="px-6 py-4">{item.attack}</td>
+                                        <td className="px-6 py-4">{item.train}</td>
+                                        <td className="px-6 py-4">{item.test}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ))}
+            </div>
+        </div>
+    );
+};
+
+
 // --- Main App Component ---
 export default function App() {
     const [models, setModels] = useState([]);
@@ -506,9 +625,18 @@ export default function App() {
     const eventSourceRef = useRef(null);
     const chartDataRef = useRef({});
 
+    const getDistinctColors = (count) => {
+        const colors = [];
+        for (let i = 0; i < count; i++) {
+            const hue = (i * (360 / (count + 2))) % 360;
+            colors.push(`hsl(${hue}, 85%, 50%)`);
+        }
+        return colors;
+    };
+
     useEffect(() => {
         if (!simulationConfig) return;
-        setSimulationData({ modelRunCounts: { labels: [], datasets: [] }, cumulativeCost: { labels: [], datasets: [] }, accuracyTrend: { labels: [], datasets: [] } });
+        setSimulationData({ modelRunCounts: { labels: [], datasets: [] }, cumulativeCost: { labels: [], datasets: [] }, accuracyTrend: { labels: [], datasets: [] }, classPriors: { labels: [], datasets: [] } });
         setFinalSummary(null);
         setStatus({ message: 'Initializing simulation stream...', type: 'info' });
         const queryParams = new URLSearchParams(simulationConfig).toString();
@@ -523,13 +651,18 @@ export default function App() {
                 roleModelStaticAccuracy = data.role_model_static_accuracy;
                 roleModelCost = data.role_model_cost_per_event || 1;
                 const modelNames = data.candidate_model_names || [];
+                const classNames = data.class_names_ordered || [];
+                const classColors = getDistinctColors(classNames.length);
+
                 chartDataRef.current = {
                     modelRunCounts: { labels: modelNames, datasets: [{ label: 'Times Executed', data: modelNames.map(() => 0), backgroundColor: 'rgba(59, 130, 246, 0.5)' }] },
                     cumulativeCost: { labels: [], datasets: [{ label: 'NOMAD Cost', data: [], borderColor: '#ef4444', tension: 0.1, backgroundColor: '#fecaca', fill: true }, { label: 'Role Model Cost', data: [], borderColor: '#3b82f6', tension: 0.1, borderDash: [5,5], backgroundColor: 'transparent' }] },
                     accuracyTrend: { labels: [], datasets: [{ label: 'NOMAD Accuracy', data: [], borderColor: '#22c55e', tension: 0.1, backgroundColor: '#dcfce7', fill: true }, { label: 'Role Model Accuracy', data: [], borderColor: '#f97316', tension: 0.1, borderDash: [5,5], backgroundColor: 'transparent' }] },
+                    classPriors: { labels: [0], datasets: classNames.map((name, i) => ({ label: name, data: [data.initial_priors[name]], borderColor: classColors[i], tension: 0.1, fill: false })) }
                 };
                 setSimulationData(chartDataRef.current);
                 setStatus({ message: `Simulation started. Total events: ${data.total_events}`, type: 'info' });
+
             } else if (data.type === 'batch_update') {
                 const current = chartDataRef.current;
                 const newLabels = [...current.cumulativeCost.labels, data.last_event_in_batch];
@@ -537,6 +670,15 @@ export default function App() {
                 current.cumulativeCost = { ...current.cumulativeCost, labels: newLabels, datasets: [{...current.cumulativeCost.datasets[0], data: [...current.cumulativeCost.datasets[0].data, data.cumulative_cost]}, {...current.cumulativeCost.datasets[1], data: [...current.cumulativeCost.datasets[1].data, roleModelCost * data.last_event_in_batch]}] };
                 current.accuracyTrend = { ...current.accuracyTrend, labels: newLabels, datasets: [{...current.accuracyTrend.datasets[0], data: [...current.accuracyTrend.datasets[0].data, data.live_nomad_accuracy]}, {...current.accuracyTrend.datasets[1], data: [...current.accuracyTrend.datasets[1].data, roleModelStaticAccuracy]}] };
                 setSimulationData({ ...current });
+
+            } else if (data.type === 'prior_update') {
+                const current = chartDataRef.current;
+                current.classPriors.labels.push(data.event_number);
+                current.classPriors.datasets.forEach(dataset => {
+                    dataset.data.push(data.updated_priors[dataset.label]);
+                });
+                setSimulationData({ ...current });
+
             } else if (data.type === 'summary') {
                 setFinalSummary(data);
                 setStatus({ message: 'Simulation complete!', type: 'success' });
@@ -552,9 +694,10 @@ export default function App() {
             <header className="bg-white/80 backdrop-blur-lg sticky top-0 z-10 shadow-sm">
                 <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center">
                     <h1 className="text-4xl font-extrabold text-gray-800 tracking-tight flex items-center justify-center">
-                        <img src="/FARML.jpeg" alt="NOMAD Logo" className="h-50 w-50 mr-3" />
+                        <img src="/nomad-logo.jpg" alt="NOMAD Logo" className="h-10 w-10 mr-3 rounded-full" />
+                        NOMAD
                     </h1>
-                    <p className="mt-2 text-lg text-gray-600 max-w-2xl mx-auto">An Interactive Visualizer Tool</p>
+                    <p className="mt-2 text-lg text-gray-600 max-w-2xl mx-auto">An Interactive Visualizer for Adaptive Model Chaining</p>
                 </div>
             </header>
             <main className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -585,13 +728,18 @@ export default function App() {
                             <ChartComponent type="bar" chartData={simulationData.modelRunCounts} chartOptions={{ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Model Execution Frequency' }} }} />
                             <ChartComponent type="line" chartData={simulationData.cumulativeCost} chartOptions={{ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Cumulative Cost' }}, scales: {y: {beginAtZero: true}} }} />
                             <ChartComponent type="line" chartData={simulationData.accuracyTrend} chartOptions={{ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Accuracy Trend' }}, scales: {y: {min: 0, max: 1}} }} />
+                            <ChartComponent type="line" chartData={simulationData.classPriors} chartOptions={{ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Class Prior Distribution' }}, scales: {y: {min: 0, max: 1}} }} />
                         </div>
                     </Section>
                 )}
                 
                 {finalSummary && (
-                    <FinalSummary summaryData={finalSummary} classNames={initialResults.classes_str} />
+                    <>
+                        <FinalSummary summaryData={finalSummary} classNames={initialResults.classes_str} />
+                        <FarmLVisualizer setStatus={setStatus} />
+                    </>
                 )}
+                
             </main>
         </div>
     );
