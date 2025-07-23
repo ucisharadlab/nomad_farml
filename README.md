@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The FARML) Visualizer is an interactive web application designed to demonstrate and analyze a powerful strategy for optimizing machine learning model deployments. It provides a "what-if" engine to explore the trade-offs between a model's computational **cost** and its predictive **accuracy**.
+The NOMAD Visualizer is an interactive web application designed to demonstrate and analyze a powerful strategy for optimizing machine learning model deployments. It provides a "what-if" engine to explore the trade-offs between a model's computational **cost** and its predictive **accuracy**.
 
 At its core, this tool simulates a smart system that dynamically selects the most efficient ML model from a pool of candidates for each individual task, aiming to achieve the highest possible accuracy for the lowest possible cost.
 
@@ -139,16 +139,16 @@ This is your "garage" of available models.
 
 ### Step 2: Upload Data & Train
 
-1.  Click **"Choose File"** and select a CSV file. The target variable (the class label) should be the second-to-last column.
+1.  Click **"Choose File"** and select a CSV file. The target variable (the class label) should be the second-to-last column. The smallest dataset(smaller models) is available as part of this repository.
 2.  Click **"Upload and Train"**.
 3.  The system will train all models in your list and display the "Individual Model Performance" table, showing the baseline results.
 
 ### Step 3: Configure & Run the Simulation
 
-Once the models are trained, this section appears.
+Once the models are trained, this section appears. The values are pre-selected to demonstrate NOMAD effectively on a laptop with basic compute power.
 
 1.  **Role Model:** Select your best-performing (and likely most expensive) model from the dropdown. This is the benchmark NOMAD will be measured against.
-2.  **Epsilon (ε):** Set your tolerance. A value of `0.05` means you're willing to accept an accuracy that is at most 5% worse than the Role Model's *if* it results in a cost saving.
+2.  **Epsilon (ε):** Set your tolerance. A value of `0.2` means you're willing to accept an accuracy that is at most 20% worse than the Role Model's *if* it results in a cost saving.
 3.  **Workload Phases (Optional):** To simulate specific scenarios, define one or more phases. For each, set the **Duration** (number of events) and the **Target Class Distribution** (the percentage of each class). If you leave this empty, the simulation will run on the test data split.
 4.  Click **"Run NOMAD Simulation"**.
 
@@ -167,12 +167,17 @@ When the simulation completes, the **Final Summary** provides a quantitative com
 ## File Structure
 
 ```
-.
-├── app.py                  # Main Flask application, API endpoints, and state management.
-├── nomad_arima_backend.py  # Core NOMAD logic, model classes, and simulation engine.
-├── requirements.txt        # List of Python dependencies.
-├── static/
-│   ├── script.js           # Frontend JavaScript for interactivity, API calls, and charting.
-│   └── style.css           # CSS for styling the web interface.
-└── templates/
-    └── index.html          # The main HTML file for the user interface.
+    ├── backend/
+    │   ├── app.py                  # Main Flask application, API endpoints, and state management.
+    │   ├── nomad_arima_backend.py  # Core NOMAD logic, model classes, and simulation engine.
+    │   └── requirements.txt        # List of Python dependencies.
+    └── nomad-frontend/
+        ├── index.html              # Main HTML file for the Vite.js frontend.
+        ├── vite.config.js          # Vite configuration file.
+        ├── tailwind.config.js      # Tailwind CSS configuration file.
+        ├── package.json            # Node.js dependencies and scripts.
+        └── src/
+            ├── App.jsx             # Main React component.
+            ├── index.css           # Tailwind CSS imports.
+            └── components/         # React components directory.
+    ```

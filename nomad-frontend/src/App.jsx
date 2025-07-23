@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
-import { ArrowUpTrayIcon, TrashIcon, PlusIcon, PlayIcon, InformationCircleIcon, SparklesIcon, ArrowPathIcon, EyeIcon, ChevronDownIcon, ChevronUpIcon, ServerStackIcon, CpuChipIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { ArrowUpTrayIcon, TrashIcon, PlusIcon, PlayIcon, InformationCircleIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend);
@@ -370,7 +370,7 @@ const InitialTrainingSummary = ({ initialResults }) => (
 
 
 const NomadConfig = ({ initialResults, setSimulationConfig, setStatus }) => {
-    const [config, setConfig] = useState({ role_model_name: '', epsilon: 0.05, quality_metric_for_ec: 'f1-score', safety_check_type: 'conservative', adaptive_update_window: 100, adaptive_beta: 0.3, });
+    const [config, setConfig] = useState({ role_model_name: '', epsilon: 0.2, quality_metric_for_ec: 'f1-score', safety_check_type: 'relaxed', adaptive_update_window: 100, adaptive_beta: 0.8, });
     const [phases, setPhases] = useState([]);
     useEffect(() => {
         if (initialResults.model_summaries?.length > 0) {
@@ -393,7 +393,7 @@ const NomadConfig = ({ initialResults, setSimulationConfig, setStatus }) => {
     const handleResetPhaseDistribution = (phaseIndex) => updatePhase(phaseIndex, 'target_distribution', initialResults.initial_priors_str_keys);
     const updatePhaseDist = (phaseIndex, className, value) => { setPhases(p => p.map((phase, i) => i === phaseIndex ? { ...phase, target_distribution: { ...phase.target_distribution, [className]: parseFloat(value) || 0 } } : phase)); };
     return (
-        <Section title="Configure NOMAD Engine" step="4">
+        <Section title="Configure NOMAD Engine" step="3">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
               <div><label className="font-semibold text-gray-700 block mb-1">Role Model</label><Select name="role_model_name" value={config.role_model_name} onChange={handleInputChange}><option value="">Select a Role Model</option>{initialResults.model_summaries?.filter(m => !m.name.includes('FAILED')).map(m => (<option key={m.name} value={m.name}>{`${m.name} (Acc: ${m.accuracy.toFixed(3)})`}</option>))}</Select></div>
               <div><label className="font-semibold text-gray-700 block mb-1">Epsilon (ε)</label><Input type="number" name="epsilon" value={config.epsilon} onChange={handleInputChange} step="0.01" min="0" /></div>
@@ -420,69 +420,6 @@ const NomadConfig = ({ initialResults, setSimulationConfig, setStatus }) => {
     );
 };
 
-const CascadeVisualizer = ({ setStatus }) => {
-    const [imageUrls, setImageUrls] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
-    
-    const handleSelection = async (value) => {
-        if (!value) return;
-        setIsLoading(true);
-        setImageUrls([]);
-        setStatus({ message: '', type: 'info' });
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/visualizations?selected=${value}`);
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Failed to fetch visualization.');
-            setImageUrls(data.plots);
-        } catch (error) {
-            setStatus({ message: error.message, type: 'error' });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <Section title="Cascade Visualizer" step="3">
-            <p className="text-gray-600 mb-4">Select an option from the dropdowns below to view pre-generated model visualizations.</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-                <Select onChange={e => handleSelection(e.target.value)} defaultValue="">
-                    <option value="" disabled>Load Model</option>
-                    <option value="model_option1">Instance Distributor</option>
-                    <option value="model_option2">Submodel 1</option>
-                    <option value="model_option3">Submodel 2</option>
-                    <option value="model_option4">Submodel 3</option>
-                    <option value="model_option5">Submodel 4</option>
-                </Select>
-                <Select onChange={e => handleSelection(e.target.value)} defaultValue="">
-                    <option value="" disabled>Test Model</option>
-                    <option value="test_method_option1">Generate Test Summary</option>
-                    <option value="test_method_option2">Trace Decision Path</option>
-                </Select>
-                 <Select onChange={e => handleSelection(e.target.value)} defaultValue="">
-                    <option value="" disabled>Attack Model</option>
-                    <option value="attack_option1">Compute Feature Correlation</option>
-                    <option value="attack_option2">Generate Attack Result</option>
-                </Select>
-                <Select onChange={e => handleSelection(e.target.value)} defaultValue="">
-                    <option value="" disabled>Adversarial Re-training</option>
-                    <option value="adtrain_option1">Generate Ad-Train Results</option>
-                    <option value="adtrain_option2">Compare Decision Boundary</option>
-                </Select>
-            </div>
-            <div className="mt-4 p-4 border rounded-lg min-h-[200px] bg-gray-50 flex items-center justify-center">
-                {isLoading && <p>Loading Visualization...</p>}
-                {!isLoading && imageUrls.length === 0 && <p className="text-gray-500">Select an option to view a visualization.</p>}
-                {!isLoading && imageUrls.length > 0 && (
-                    <div className="flex flex-wrap gap-4 justify-center">
-                        {imageUrls.map((url, i) => <img key={i} src={`${API_BASE_URL}${url}`} alt={`Visualization ${i+1}`} className="max-w-full md:max-w-md rounded-lg shadow-lg" />)}
-                    </div>
-                )}
-            </div>
-        </Section>
-    );
-};
-
-
 const FinalSummary = ({ summaryData, classNames }) => {
     const { nomad_overall_metrics, role_model_performance } = summaryData;
     const MetricBox = ({ title, metrics }) => (<div className="bg-white p-6 rounded-lg shadow-md"><h4 className="text-xl font-bold text-gray-800 mb-4">{title}</h4><div className="space-y-2 text-gray-600"><p><strong>Accuracy:</strong> {metrics.accuracy?.toFixed(4) || 'N/A'}</p><p><strong>Avg F1-Score:</strong> {metrics.avg_metrics?.['f1-score']?.toFixed(4) || 'N/A'}</p><p><strong>Cost:</strong> {metrics.average_cost?.toFixed(4) || metrics.cost?.toFixed(2) || 'N/A'}</p></div></div>);
@@ -490,127 +427,8 @@ const FinalSummary = ({ summaryData, classNames }) => {
         if (!cmData || cmData.length === 0 || !classNames || classNames.length === 0) return <p>Confusion Matrix not available.</p>;
         return (<div className="mt-4"><h5 className="font-semibold text-gray-700 mb-2">{title}</h5><div className="overflow-x-auto"><table className="w-full text-xs text-center border"><thead><tr><th className="p-2 border bg-gray-50">T\P</th>{classNames.map(l => <th key={l} title={l} className="p-2 border bg-gray-50 font-semibold truncate">{l}</th>)}</tr></thead><tbody>{cmData.map((row, i) => (<tr key={i}><td className="p-2 border bg-gray-50 font-semibold truncate" title={classNames[i]}>{classNames[i]}</td>{row.map((cell, j) => <td key={j} className="p-2 border">{cell}</td>)}</tr>))}</tbody></table></div></div>);
     };
-    return (<Section title="Final Summary" step="6"><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><MetricBox title="NOMAD Performance" metrics={nomad_overall_metrics} /><MetricBox title={`${role_model_performance.name} (Role Model)`} metrics={role_model_performance} /></div><div className="mt-8"><ConfusionMatrix title="NOMAD Confusion Matrix" cmData={nomad_overall_metrics.cm} /><ConfusionMatrix title="Role Model Confusion Matrix" cmData={role_model_performance.cm} /></div></Section>);
+    return (<Section title="Final Summary" step="5"><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><MetricBox title="NOMAD Performance" metrics={nomad_overall_metrics} /><MetricBox title={`${role_model_performance.name} (Role Model)`} metrics={role_model_performance} /></div><div className="mt-8"><ConfusionMatrix title="NOMAD Confusion Matrix" cmData={nomad_overall_metrics.cm} /><ConfusionMatrix title="Role Model Confusion Matrix" cmData={role_model_performance.cm} /></div></Section>);
 };
-
-const FarmLVisualizer = () => {
-    const [activeView, setActiveView] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [statusMessage, setStatusMessage] = useState('');
-    const droneDataOutput = [ { drone: 0, data: [ { attack: 'Benign', train: 0, test: 60 }, { attack: 'Port Scan', train: 0, test: 68 }, { attack: 'ICMP Flood', train: 11, test: 0 }, { attack: 'Ping Sweep', train: 0, test: 72 }, { attack: 'Vulnerability Scan', train: 270, test: 0 }, { attack: 'OS Scan', train: 20, test: 0 }, { attack: 'DNS Flood', train: 0, test: 0 }, { attack: 'Slowloris', train: 13, test: 4 }, { attack: 'Dictionary Attack', train: 0, test: 419 }, { attack: 'UDP Flood', train: 0, test: 6 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 314, test: 629 } }, { drone: 1, data: [ { attack: 'Benign', train: 0, test: 0 }, { attack: 'Port Scan', train: 0, test: 0 }, { attack: 'ICMP Flood', train: 0, test: 85 }, { attack: 'Ping Sweep', train: 5603, test: 1 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 0, test: 0 }, { attack: 'DNS Flood', train: 5, test: 0 }, { attack: 'Slowloris', train: 7, test: 100 }, { attack: 'Dictionary Attack', train: 241, test: 34 }, { attack: 'UDP Flood', train: 0, test: 2 }, { attack: 'SYN Flood', train: 0, test: 6 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 5956, test: 228 } }, { drone: 2, data: [ { attack: 'Benign', train: 198, test: 0 }, { attack: 'Port Scan', train: 0, test: 0 }, { attack: 'ICMP Flood', train: 0, test: 0 }, { attack: 'Ping Sweep', train: 0, test: 0 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 0, test: 3 }, { attack: 'DNS Flood', train: 3, test: 5415 }, { attack: 'Slowloris', train: 24056, test: 0 }, { attack: 'Dictionary Attack', train: 0, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 24257, test: 5418 } }, { drone: 3, data: [ { attack: 'Benign', train: 5117, test: 0 }, { attack: 'Port Scan', train: 0, test: 0 }, { attack: 'ICMP Flood', train: 1, test: 0 }, { attack: 'Ping Sweep', train: 1373, test: 3 }, { attack: 'Vulnerability Scan', train: 36, test: 7 }, { attack: 'OS Scan', train: 1697, test: 1210 }, { attack: 'DNS Flood', train: 0, test: 5259 }, { attack: 'Slowloris', train: 0, test: 0 }, { attack: 'Dictionary Attack', train: 0, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 8224, test: 6479 } }, { drone: 4, data: [ { attack: 'Benign', train: 6072, test: 0 }, { attack: 'Port Scan', train: 70, test: 0 }, { attack: 'ICMP Flood', train: 1, test: 2 }, { attack: 'Ping Sweep', train: 0, test: 8 }, { attack: 'Vulnerability Scan', train: 98, test: 693 }, { attack: 'OS Scan', train: 0, test: 522 }, { attack: 'DNS Flood', train: 0, test: 44 }, { attack: 'Slowloris', train: 8, test: 0 }, { attack: 'Dictionary Attack', train: 172, test: 0 }, { attack: 'UDP Flood', train: 0, test: 9 }, { attack: 'SYN Flood', train: 22, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6443, test: 1278 } }, { drone: 5, data: [ { attack: 'Benign', train: 1, test: 0 }, { attack: 'Port Scan', train: 271, test: 658 }, { attack: 'ICMP Flood', train: 334, test: 67 }, { attack: 'Ping Sweep', train: 0, test: 685 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 164, test: 0 }, { attack: 'DNS Flood', train: 8, test: 31 }, { attack: 'Slowloris', train: 0, test: 224 }, { attack: 'Dictionary Attack', train: 4, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 0, test: 25 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 782, test: 1690 } }, { drone: 6, data: [ { attack: 'Benign', train: 23, test: 0 }, { attack: 'Port Scan', train: 2318, test: 141 }, { attack: 'ICMP Flood', train: 0, test: 0 }, { attack: 'Ping Sweep', train: 223, test: 3940 }, { attack: 'Vulnerability Scan', train: 0, test: 0 }, { attack: 'OS Scan', train: 1860, test: 0 }, { attack: 'DNS Flood', train: 0, test: 0 }, { attack: 'Slowloris', train: 0, test: 0 }, { attack: 'Dictionary Attack', train: 555, test: 0 }, { attack: 'UDP Flood', train: 0, test: 0 }, { attack: 'SYN Flood', train: 4, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 4983, test: 4081 } }, { drone: 7, data: [ { attack: 'Benign', train: 1998, test: 0 }, { attack: 'Port Scan', train: 8, test: 0 }, { attack: 'ICMP Flood', train: 2, test: 0 }, { attack: 'Ping Sweep', train: 2162, test: 777 }, { attack: 'Vulnerability Scan', train: 22, test: 37 }, { attack: 'OS Scan', train: 0, test: 0 }, { attack: 'DNS Flood', train: 0, test: 0 }, { attack: 'Slowloris', train: 138, test: 8 }, { attack: 'Dictionary Attack', train: 82, test: 0 }, { attack: 'UDP Flood', train: 37, test: 0 }, { attack: 'SYN Flood', train: 1691, test: 932 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6140, test: 1754 } }, { drone: 8, data: [ { attack: 'Benign', train: 5186, test: 0 }, { attack: 'Port Scan', train: 0, test: 277 }, { attack: 'ICMP Flood', train: 13, test: 1 }, { attack: 'Ping Sweep', train: 60, test: 0 }, { attack: 'Vulnerability Scan', train: 19, test: 177 }, { attack: 'OS Scan', train: 0, test: 17 }, { attack: 'DNS Flood', train: 858, test: 2 }, { attack: 'Slowloris', train: 621, test: 2 }, { attack: 'Dictionary Attack', train: 0, test: 0 }, { attack: 'UDP Flood', train: 0, test: 2 }, { attack: 'SYN Flood', train: 0, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6757, test: 478 } }, { drone: 9, data: [ { attack: 'Benign', train: 123, test: 7962 }, { attack: 'Port Scan', train: 1, test: 0 }, { attack: 'ICMP Flood', train: 1, test: 0 }, { attack: 'Ping Sweep', train: 3382, test: 0 }, { attack: 'Vulnerability Scan', train: 1688, test: 0 }, { attack: 'OS Scan', train: 345, test: 0 }, { attack: 'DNS Flood', train: 157, test: 0 }, { attack: 'Slowloris', train: 0, test: 0 }, { attack: 'Dictionary Attack', train: 6, test: 0 }, { attack: 'UDP Flood', train: 8, test: 0 }, { attack: 'SYN Flood', train: 529, test: 0 }, { attack: 'ARP Spoofing', train: 0, test: 0 } ], total: { train: 6240, test: 7962 } } ];
-
-    const handleButtonClick = (viewName, loadingMessage, successMessage) => {
-        const nextView = activeView === viewName ? null : viewName;
-        setActiveView(nextView);
-
-        if (nextView && loadingMessage) {
-            setIsLoading(true);
-            setStatusMessage(loadingMessage);
-            setTimeout(() => {
-                setStatusMessage(successMessage);
-                setIsLoading(false);
-            }, 1500);
-        } else {
-            setStatusMessage('');
-        }
-    };
-    
-    return (
-        <Section title="FARML - Self-Supervised Federated Learning" step="7">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Select Dataset</label>
-                    <Select defaultValue="ACI IoT dataset 2023"><option>ACI IoT dataset 2023</option><option>UNSW dataset</option></Select>
-                </div>
-                 <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Number of Drones</label>
-                    <Select defaultValue="10">{[...Array(10)].map((_, i) => (<option key={i+1}>{i+1}</option>))}</Select>
-                </div>
-                 <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Data Distribution</label>
-                    <Select defaultValue="Low"><option>High</option><option>Medium</option><option>Low</option></Select>
-                </div>
-            </div>
-
-            <div className="flex flex-wrap gap-4 items-center">
-                <Button onClick={() => handleButtonClick('data', 'Preparing data...', 'Data preparation complete.')} disabled={isLoading} icon={ServerStackIcon}>{isLoading && activeView ==='data' ? 'Processing...' : 'Prepare Data'}</Button>
-                <Button onClick={() => handleButtonClick('import', 'Importing model...', 'Model imported successfully.')} disabled={isLoading} icon={ArrowUpTrayIcon} className="bg-indigo-600 hover:bg-indigo-700">{isLoading && activeView === 'import' ? 'Importing...' : 'Import Model'}</Button>
-                <Button onClick={() => handleButtonClick('architecture')} icon={CpuChipIcon} className="bg-gray-600 hover:bg-gray-700">{activeView === 'architecture' ? 'Hide' : 'Show'} Architecture</Button>
-            </div>
-            
-            {statusMessage && <StatusMessage message={statusMessage} type="info" />}
-            
-            {activeView === 'data' && <DroneDataTable droneData={droneDataOutput} />}
-            
-            {activeView === 'import' && (
-                <div className="mt-6">
-                    <h4 className="text-lg font-semibold text-gray-700">Performance Metrics</h4>
-                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
-                        <div>
-                          <img src="/federated-chart.png" alt="Federated Learning Comparison" className="w-full rounded-lg shadow-md" />
-                           <p className="text-center text-sm text-gray-600 mt-2"><strong>Caption:</strong> ClusterFed converges efficiently with low communication overhead.</p>
-                        </div>
-                        <div>
-                           <img src="/comm_cost.png" alt="Communication Cost" className="w-full rounded-lg shadow-md" />
-                           <p className="text-center text-sm text-gray-600 mt-2"><strong>Caption:</strong> Communication cost analysis across different methods.</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {activeView === 'architecture' && (
-                 <div className="mt-6">
-                    <h4 className="text-lg font-semibold text-gray-700">System Architecture</h4>
-                     <img src="/architecture-diagram.png" alt="System Architecture" className="w-full rounded-lg shadow-md mt-4" />
-                </div>
-            )}
-        </Section>
-    );
-};
-
-const DroneDataTable = ({ droneData }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const dataToShow = isExpanded ? droneData : droneData.slice(0, 3);
-    
-    return (
-        <div className="mt-6">
-            <div className="flex justify-between items-center mb-4">
-                <h4 className="text-lg font-semibold text-gray-700">Data Distribution Across Drones</h4>
-                <button onClick={() => setIsExpanded(!isExpanded)} className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                    {isExpanded ? <ChevronUpIcon className="h-4 w-4" /> : <ChevronDownIcon className="h-4 w-4" />}
-                    {isExpanded ? 'Collapse' : 'Expand All'}
-                </button>
-            </div>
-            <div className="space-y-6">
-            {dataToShow.map(drone => (
-                <div key={drone.drone}>
-                    <h5 className="font-bold text-gray-600 mb-2">Drone {drone.drone}</h5>
-                    <div className="overflow-x-auto bg-white rounded-lg shadow">
-                         <table className="w-full text-sm text-left text-gray-500">
-                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                <tr>
-                                    <th className="px-6 py-3">Attack Type</th>
-                                    <th className="px-6 py-3">Train Samples</th>
-                                    <th className="px-6 py-3">Test Samples</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {drone.data.map((item) => (
-                                    <tr key={item.attack} className="bg-white border-b hover:bg-gray-50">
-                                        <td className="px-6 py-4">{item.attack}</td>
-                                        <td className="px-6 py-4">{item.train}</td>
-                                        <td className="px-6 py-4">{item.test}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            ))}
-            </div>
-        </div>
-    );
-};
-
 
 // --- Main App Component ---
 export default function App() {
@@ -714,16 +532,12 @@ export default function App() {
                     </div>
                 )}
                 
-                {initialResults && (
-                    <CascadeVisualizer setStatus={setStatus}/>
-                )}
-                
                 {nomadConfigReady && initialResults && (
                     <NomadConfig initialResults={initialResults} setSimulationConfig={setSimulationConfig} setStatus={setStatus}/>
                 )}
                 
                 {simulationData && simulationData.modelRunCounts.labels.length > 0 && (
-                    <Section title="Live Simulation Results" step="5">
+                    <Section title="Live Simulation Results" step="4">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             <ChartComponent type="bar" chartData={simulationData.modelRunCounts} chartOptions={{ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Model Execution Frequency' }} }} />
                             <ChartComponent type="line" chartData={simulationData.cumulativeCost} chartOptions={{ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Cumulative Cost' }}, scales: {y: {beginAtZero: true}} }} />
@@ -734,10 +548,7 @@ export default function App() {
                 )}
                 
                 {finalSummary && (
-                    <>
-                        <FinalSummary summaryData={finalSummary} classNames={initialResults.classes_str} />
-                        <FarmLVisualizer setStatus={setStatus} />
-                    </>
+                    <FinalSummary summaryData={finalSummary} classNames={initialResults.classes_str} />
                 )}
                 
             </main>
