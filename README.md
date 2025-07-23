@@ -139,7 +139,7 @@ This is your "garage" of available models.
 
 ### Step 2: Upload Data & Train
 
-1.  Click **"Choose File"** and select a CSV file. The target variable (the class label) should be the second-to-last column. The smallest dataset(smaller models) is available as part of this repository.
+1.  Click **"Choose File"** and select a CSV file. The target variable (the class label) should be the second-to-last column. The smallest dataset(smaller models) is available as part of this repository - UNSW_NB15_training-set.csv.
 2.  Click **"Upload and Train"**.
 3.  The system will train all models in your list and display the "Individual Model Performance" table, showing the baseline results.
 
