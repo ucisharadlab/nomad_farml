@@ -376,7 +376,7 @@ class AdaptivePriorsManager:
         }
 
 
-# --- Helper Functions (largely unchanged) ---
+# --- Helper Functions ---
 def get_quality_metrics(y_true, y_pred, labels, class_names_map=None):
     if len(y_true) == 0 or len(y_pred) == 0:
         return np.array([]), 0.0, {}, {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
