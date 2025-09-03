@@ -376,7 +376,7 @@ class AdaptivePriorsManager:
         }
 
 
-# --- Helper Functions ---
+# --- Helper Functions (largely unchanged) ---
 def get_quality_metrics(y_true, y_pred, labels, class_names_map=None):
     if len(y_true) == 0 or len(y_pred) == 0:
         return np.array([]), 0.0, {}, {"precision":0.0, "recall":0.0, "f1-score":0.0, "support":0}
@@ -1058,6 +1058,7 @@ def run_nomad_simulation_for_flask_streamed(trained_models_dict, role_model_name
                                            candidate_configs, X_test_column_names, **kwargs):
     """
     Initializes and runs the NOMAD engine, yielding simulation updates.
+    Supports both independent and dependent models.
     """
     # Extract adaptive configuration from kwargs
     adaptive_config = kwargs.get('adaptive_config', {
@@ -1069,14 +1070,27 @@ def run_nomad_simulation_for_flask_streamed(trained_models_dict, role_model_name
         'enable_arima': True
     })
     
+    # Check if any model has dependencies to enable dependent model mode
+    enable_dependent_models = kwargs.get('enable_dependent_models', False)
+    if not enable_dependent_models:
+        # Auto-detect if any models have dependencies
+        for model_obj in trained_models_dict.values():
+            if hasattr(model_obj, 'prerequisites') and model_obj.prerequisites:
+                enable_dependent_models = True
+                print(f"DEBUG: Auto-detected dependent models. Model '{model_obj.name}' has prerequisites: {model_obj.prerequisites}")
+                break
+    
     nomad_engine = NOMADEngine(
-        models_dict=trained_models_dict, role_model_name=role_model_name, epsilon=epsilon,
+        models_dict=trained_models_dict, 
+        role_model_name=role_model_name, 
+        epsilon=epsilon,
         initial_class_priors_str_keys=initial_class_priors_str_keys,
         unique_classes_ordered_str=unique_class_names_ordered_str,
         class_map_numeric_to_str=class_map_numeric_to_str,
         quality_metric_for_ec=quality_metric_for_ec,
         safety_check_type=safety_check_type,
-        adaptive_config=adaptive_config
+        adaptive_config=adaptive_config,
+        enable_dependent_models=enable_dependent_models
     )
     
     candidate_model_names = list(candidate_configs.keys())
