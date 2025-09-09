@@ -13,7 +13,8 @@ from nomad_arima_backend import (
     train_evaluate_individual_models_for_flask,
     run_nomad_simulation_for_flask_streamed,
     load_and_preprocess_data_for_flask,
-    get_classifier_from_config
+    get_classifier_from_config,
+    AdaptivePriorsManager  # Import the new class
 )
 
 app = Flask(__name__)
@@ -191,16 +192,42 @@ def nomad_event_stream_endpoint():
         return Response(err_gen(), mimetype='text/event-stream')
     
     try:
+        # Parse basic configuration
         config = {
             "role_model_name": request.args.get('role_model_name'),
             "epsilon": float(request.args.get('epsilon', 0.05)),
             "quality_metric_for_ec": request.args.get('quality_metric_for_ec', 'f1-score'),
             "safety_check_type": request.args.get('safety_check_type', 'conservative'),
             "batch_size": int(request.args.get('batch_size', 10)),
-            "adaptive_update_window": int(request.args.get('adaptive_update_window', 100)),
-            "adaptive_beta": float(request.args.get('adaptive_beta', 0.3)),
             "workload_phases": json.loads(request.args.get('workload_phases', '[]'))
         }
+        
+        # Parse adaptive configuration parameters with defaults
+        adaptive_config = {
+            "ph_threshold": float(request.args.get('ph_threshold', 50.0)),
+            "ph_delta": float(request.args.get('ph_delta', 0.005)),
+            "buffer_size": int(request.args.get('buffer_size', 100)),
+            "min_buffer_for_arima": int(request.args.get('min_buffer_for_arima', 20)),
+            "enable_arima": request.args.get('enable_arima', 'true').lower() == 'true'
+        }
+        
+        # Parse ARIMA order (p,d,q)
+        arima_order_str = request.args.get('arima_order', '1,0,1')
+        try:
+            arima_order = tuple(map(int, arima_order_str.split(',')))
+            if len(arima_order) != 3:
+                raise ValueError("ARIMA order must have exactly 3 components")
+        except:
+            arima_order = (1, 0, 1)  # Default fallback
+            
+        adaptive_config["arima_order"] = arima_order
+        
+        # Additional parameters
+        config.update({
+            "adaptive_config": adaptive_config,
+            "enable_dependent_models": request.args.get('enable_dependent_models', 'false').lower() == 'true'
+        })
+        
     except (ValueError, json.JSONDecodeError) as e:
         def err_gen(): yield f"data: {json.dumps({'type':'error','message':f'Invalid params: {e}'})}\n\n"
         return Response(err_gen(), mimetype='text/event-stream')
@@ -217,17 +244,155 @@ def nomad_event_stream_endpoint():
                 current_run_data['class_map_numeric_to_str'], config["quality_metric_for_ec"], config["safety_check_type"],
                 current_run_data['X_test_data_overall'], current_run_data['y_test_encoded_data_overall'],
                 CANDIDATE_MODELS, current_run_data['X_column_names'],
-                batch_size=config["batch_size"], adaptive_update_window=config["adaptive_update_window"],
-                adaptive_beta=config["adaptive_beta"], workload_phases=config["workload_phases"],
-                X_by_class_str_keys=current_run_data['X_by_class_str_keys'], y_by_class_str_keys=current_run_data['y_by_class_str_keys']
+                batch_size=config["batch_size"], 
+                workload_phases=config["workload_phases"],
+                X_by_class_str_keys=current_run_data['X_by_class_str_keys'], 
+                y_by_class_str_keys=current_run_data['y_by_class_str_keys'],
+                adaptive_config=config["adaptive_config"],
+                enable_dependent_models=config["enable_dependent_models"]
             ):
                 yield f"data: {json.dumps(update)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type':'error','message':f'Sim error: {str(e)}'})}\n\n"
+            error_msg = {
+                'type': 'error',
+                'message': f'Simulation error: {str(e)}',
+                'traceback': traceback.format_exc()
+            }
+            yield f"data: {json.dumps(error_msg)}\n\n"
             
     return Response(generate_updates(), mimetype='text/event-stream')
 
+@app.route('/api/adaptive_config', methods=['GET'])
+def get_adaptive_config():
+    """Get current adaptive configuration settings"""
+    default_config = {
+        "ph_threshold": 50.0,
+        "ph_delta": 0.005,
+        "buffer_size": 100,
+        "min_buffer_for_arima": 20,
+        "arima_order": [1, 0, 1],
+        "enable_arima": True
+    }
+    return jsonify(default_config)
+
+@app.route('/api/adaptive_config', methods=['POST'])
+def set_adaptive_config():
+    """Set adaptive configuration settings"""
+    try:
+        config = request.json
+        
+        # Validate configuration
+        validated_config = {
+            "ph_threshold": float(config.get('ph_threshold', 50.0)),
+            "ph_delta": float(config.get('ph_delta', 0.005)),
+            "buffer_size": int(config.get('buffer_size', 100)),
+            "min_buffer_for_arima": int(config.get('min_buffer_for_arima', 20)),
+            "enable_arima": bool(config.get('enable_arima', True))
+        }
+        
+        # Handle ARIMA order
+        arima_order = config.get('arima_order', [1, 0, 1])
+        if isinstance(arima_order, list) and len(arima_order) == 3:
+            validated_config["arima_order"] = tuple(map(int, arima_order))
+        else:
+            validated_config["arima_order"] = (1, 0, 1)
+        
+        # Store in current run data for future simulations
+        current_run_data['adaptive_config'] = validated_config
+        
+        return jsonify({
+            "message": "Adaptive configuration updated successfully",
+            "config": {
+                **validated_config,
+                "arima_order": list(validated_config["arima_order"])  # Convert back to list for JSON
+            }
+        }), 200
+        
+    except (ValueError, KeyError, TypeError) as e:
+        return jsonify({"error": f"Invalid adaptive configuration: {str(e)}"}), 400
+
+@app.route('/api/system_status', methods=['GET'])
+def get_system_status():
+    """Get current system status and health information"""
+    status = {
+        "models_loaded": len(CANDIDATE_MODELS),
+        "data_loaded": 'X_full' in current_run_data,
+        "models_trained": 'trained_models_dict' in current_run_data,
+        "available_models": list(CANDIDATE_MODELS.keys()),
+        "system_ready": all([
+            'trained_models_dict' in current_run_data,
+            'X_test_data_overall' in current_run_data,
+            current_run_data.get('trained_models_dict')
+        ])
+    }
+    
+    if status["models_trained"]:
+        trained_models = current_run_data.get('trained_models_dict', {})
+        status["trained_model_count"] = len(trained_models)
+        status["trained_model_names"] = list(trained_models.keys())
+        
+        # Add model performance summaries
+        model_performance = {}
+        for name, model in trained_models.items():
+            if hasattr(model, 'accuracy') and hasattr(model, 'avg_metrics'):
+                model_performance[name] = {
+                    "accuracy": float(model.accuracy),
+                    "avg_f1": float(model.avg_metrics.get('f1-score', 0.0)),
+                    "cost": float(model.cost)
+                }
+        status["model_performance"] = model_performance
+    
+    return jsonify(status)
+
+@app.route('/api/test_adaptive', methods=['POST'])
+def test_adaptive_functionality():
+    """Test endpoint for adaptive functionality"""
+    try:
+        if 'unique_class_names_ordered_str' not in current_run_data:
+            return jsonify({"error": "No data loaded"}), 400
+        
+        # Create a test adaptive manager
+        class_names = current_run_data['unique_class_names_ordered_str']
+        initial_priors = current_run_data.get('initial_class_priors_str_keys', {})
+        
+        test_config = request.json.get('adaptive_config', {})
+        
+        adaptive_manager = AdaptivePriorsManager(
+            class_names=class_names,
+            initial_priors=initial_priors,
+            ph_threshold=test_config.get('ph_threshold', 50.0),
+            ph_delta=test_config.get('ph_delta', 0.005),
+            buffer_size=test_config.get('buffer_size', 100),
+            min_buffer_for_arima=test_config.get('min_buffer_for_arima', 20),
+            arima_order=tuple(test_config.get('arima_order', [1, 0, 1])),
+            enable_arima=test_config.get('enable_arima', True)
+        )
+        
+        # Simulate some events
+        test_results = []
+        for i, class_name in enumerate(class_names[:10]):  # Test first 10 or fewer classes
+            updated_priors, drift_detected = adaptive_manager.update(class_name)
+            test_results.append({
+                "event": i + 1,
+                "observed_class": class_name,
+                "updated_priors": updated_priors,
+                "drift_detected": drift_detected
+            })
+        
+        final_stats = adaptive_manager.get_statistics()
+        
+        return jsonify({
+            "message": "Adaptive functionality test completed",
+            "test_results": test_results,
+            "final_statistics": final_stats,
+            "arima_available": hasattr(adaptive_manager, 'enable_arima') and adaptive_manager.enable_arima
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Adaptive test failed: {str(e)}",
+            "traceback": traceback.format_exc()
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001, threaded=True)
-
