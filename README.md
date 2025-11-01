@@ -179,7 +179,7 @@ def nomad_classify_event(event, models, current_priors):
 
 - **Python**: 3.7+ with pip
 - **Node.js**: 16+ with npm (for web interface)
-- **System Requirements**: 4GB+ RAM, multi-core CPU recommended
+- **System Requirements**: 16GB+ RAM, Multi-core (Please see Evaluation Hardware in the paper for precise reproducability of results). Note: System performance will vary based on the CPU and RAM available to the system as well as the cost of each classifier inference on each system.
 
 ### Quick Start (Python API Only)
 
